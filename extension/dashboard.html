@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New Tab</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <script src="js/theme-boot.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body data-tab="news">
+  <div class="page">
+    <header class="hero">
+      <div class="hero-day">
+        <p class="greeting" id="greeting"></p>
+        <div class="hero-line">
+          <h1 class="day" id="day-name"></h1>
+          <span id="task-summary" class="task-summary"></span>
+        </div>
+      </div>
+      <div class="hero-tools">
+        <form id="search-form" class="search" role="search">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+          <input id="search-input" type="search" placeholder="Search the web or type a URL" aria-label="Search the web" autocomplete="off" spellcheck="false">
+          <kbd class="search-hint" title="Press / to search">/</kbd>
+        </form>
+        <button id="open-settings" class="icon-btn" type="button" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+          <span id="sync-badge" class="sync-badge" data-state="off"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div class="side">
+        <section class="panel tasks" aria-labelledby="tasks-heading">
+          <h2 id="tasks-heading" class="panel-title">To-do</h2>
+          <form id="task-form" class="task-form" autocomplete="off">
+            <div class="task-form-main">
+              <input id="task-input" class="field field--big" type="text" placeholder="Add a task" aria-label="New task" maxlength="500">
+              <button class="btn btn--primary btn--big" type="submit">Add</button>
+            </div>
+            <div class="task-form-row">
+              <div class="segmented" role="group" aria-label="Due date">
+                <button type="button" data-due="today">Today</button>
+                <button type="button" data-due="tomorrow">Tomorrow</button>
+                <button type="button" data-due="">No date</button>
+              </div>
+              <input id="task-date" class="date-pick" type="date" aria-label="Pick a due date">
+              <button id="task-important" class="task-star" type="button" aria-pressed="false" aria-label="Mark as important">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.6-5 2.6 1-5.6-4.1-3.9 5.6-.8z"/></svg>
+              </button>
+            </div>
+          </form>
+          <div id="task-groups" class="task-groups"></div>
+        </section>
+
+        <!-- Shown only on its own tab: the Learning log and the Work history. -->
+        <section class="panel" data-for="learning" aria-labelledby="log-heading">
+          <h2 id="log-heading" class="panel-title">Learning log</h2>
+          <p class="panel-note">What you've read and tried lately</p>
+          <ol class="log-list" id="log-list"></ol>
+        </section>
+        <section class="panel" data-for="work" aria-labelledby="work-history-heading">
+          <h2 id="work-history-heading" class="panel-title">Work history</h2>
+          <p class="panel-note">A summary for each day you pushed to GitHub</p>
+          <ol class="work-history" id="work-history"></ol>
+        </section>
+
+        <section class="panel trending" aria-labelledby="trending-heading">
+          <div class="trending-head">
+            <h2 id="trending-heading" class="panel-title">Trending on GitHub</h2>
+            <a id="trending-open" class="link-button" href="https://github.com/trending">Open on GitHub</a>
+          </div>
+          <div class="trending-controls">
+            <div class="segmented" id="trending-range" role="group" aria-label="Date range"></div>
+            <select id="trending-language" class="field field--small" aria-label="Language"></select>
+          </div>
+          <p class="panel-note" id="trending-status"></p>
+          <ol class="trend-repos" id="trending-list"></ol>
+          <button id="trending-more" class="link-button" type="button" hidden></button>
+        </section>
+      </div>
+
+      <div class="center">
+        <div class="tabs" role="tablist" aria-label="Sections">
+          <button id="tab-news" data-tab="news" type="button" role="tab" aria-controls="panel-news" aria-selected="true">AI news</button>
+          <button id="tab-learning" data-tab="learning" type="button" role="tab" aria-controls="panel-learning" aria-selected="false" tabindex="-1">Learning</button>
+          <button id="tab-work" data-tab="work" type="button" role="tab" aria-controls="panel-work" aria-selected="false" tabindex="-1">Work</button>
+        </div>
+
+        <section id="panel-news" class="tab-panel" role="tabpanel" aria-labelledby="tab-news">
+          <div class="feed-bar">
+            <nav class="chips" id="news-groups" aria-label="News sections"></nav>
+            <div class="feed-status">
+              <button id="news-new" class="pill-new" type="button" hidden>New stories</button>
+              <span id="news-status" aria-live="polite"></span>
+              <button id="news-refresh" class="btn btn--ghost btn--small" type="button">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+          <p id="news-failed" class="feed-failed"></p>
+          <div class="cards" id="news-cards"></div>
+          <div class="news-sections" id="news-sections" hidden></div>
+          <div class="feed-more"><button id="news-more" class="btn" type="button" hidden>Show more stories</button></div>
+        </section>
+
+        <section id="panel-learning" class="tab-panel" role="tabpanel" aria-labelledby="tab-learning" hidden>
+          <div class="learn-tabs" id="learn-tabs" role="tablist" aria-label="Learning sections"></div>
+
+          <div id="learn-stack" class="learn-view" role="tabpanel">
+            <div id="stack-connect" class="work-connect" hidden>
+              <h2 class="brief-title">Learn what you're building with</h2>
+              <p class="brief-summary">Connect GitHub and this tab follows the tools in the repos you push to: what's new in them, videos about them and the best articles to master them.</p>
+              <button id="stack-connect-button" class="btn btn--primary" type="button">Connect GitHub</button>
+            </div>
+            <div id="stack-main">
+              <div class="brief-head">
+                <div>
+                  <h2 class="brief-title">Your stack</h2>
+                  <p class="brief-summary" id="stack-summary"></p>
+                </div>
+                <button id="stack-rescan" class="btn btn--ghost btn--small" type="button">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></svg>
+                  Scan again
+                </button>
+              </div>
+              <div class="stack-tools" id="stack-tools"></div>
+              <section class="brief-section" aria-labelledby="stack-news-heading">
+                <h3 id="stack-news-heading" class="section-title">What's new in your stack</h3>
+                <div class="cards cards--three" id="stack-news"></div>
+              </section>
+              <section class="brief-section" id="stack-videos-section" aria-labelledby="stack-videos-heading" hidden>
+                <h3 id="stack-videos-heading" class="section-title">Videos about your stack</h3>
+                <div class="cards cards--three" id="stack-videos"></div>
+              </section>
+              <section class="brief-section" aria-labelledby="stack-master-heading">
+                <h3 id="stack-master-heading" class="section-title">Master your tools</h3>
+                <p class="section-note">In-depth articles for the three tools you use most. A tool counts as covered once you've read 5.</p>
+                <div class="master-rows" id="stack-master"></div>
+              </section>
+            </div>
+          </div>
+
+          <div id="learn-suggested" class="learn-view" role="tabpanel" hidden>
+            <div class="brief-head">
+              <div>
+                <h2 class="brief-title">Suggested for you</h2>
+                <p class="brief-summary" id="suggest-summary"></p>
+              </div>
+              <button id="suggest-refresh" class="btn btn--ghost btn--small" type="button">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></svg>
+                Refresh
+              </button>
+            </div>
+            <section class="brief-section" aria-labelledby="suggest-videos-heading">
+              <h3 id="suggest-videos-heading" class="section-title">Videos everyone's watching</h3>
+              <div class="cards cards--three" id="suggest-videos"></div>
+            </section>
+            <section class="brief-section" aria-labelledby="suggest-posts-heading">
+              <h3 id="suggest-posts-heading" class="section-title">Posts everyone's reading</h3>
+              <div class="cards cards--three" id="suggest-posts"></div>
+            </section>
+          </div>
+
+          <div id="learn-today" class="learn-view" role="tabpanel" hidden>
+            <div class="brief-head">
+              <div>
+                <h2 class="brief-title">Today's brief</h2>
+                <p class="brief-summary" id="brief-summary"></p>
+              </div>
+              <button id="brief-reshuffle" class="btn btn--ghost btn--small" type="button">Different picks</button>
+            </div>
+            <div class="stats" id="learning-stats"></div>
+            <section class="brief-section" aria-labelledby="learn-heading">
+              <h3 id="learn-heading" class="section-title">Learn today</h3>
+              <div class="cards cards--three" id="learn-cards"></div>
+            </section>
+          </div>
+
+          <div id="learn-topic" class="learn-view" role="tabpanel" hidden>
+            <div class="brief-head">
+              <div>
+                <h2 class="brief-title" id="topic-title"></h2>
+                <p class="brief-summary" id="topic-summary"></p>
+              </div>
+            </div>
+            <section class="brief-section" id="topic-videos-section" aria-labelledby="topic-videos-heading">
+              <h3 id="topic-videos-heading" class="section-title">Top videos this week</h3>
+              <div class="cards cards--three" id="topic-videos"></div>
+            </section>
+            <section class="brief-section" aria-labelledby="topic-trending-heading">
+              <h3 id="topic-trending-heading" class="section-title">Trending now</h3>
+              <div class="cards cards--three" id="topic-trending"></div>
+            </section>
+            <section class="brief-section" aria-labelledby="topic-articles-heading">
+              <h3 id="topic-articles-heading" class="section-title">Articles to study</h3>
+              <div class="cards cards--three" id="topic-articles"></div>
+            </section>
+          </div>
+
+          <div id="learn-all" class="learn-view" role="tabpanel" hidden>
+            <div class="brief-head">
+              <div>
+                <h2 class="brief-title">All topics</h2>
+                <p class="brief-summary">A topic counts as covered once you've read 5 articles in it. Pick one to study it now.</p>
+              </div>
+            </div>
+            <div id="topic-list" class="topic-list"></div>
+            <div id="study-panel" class="study" hidden>
+              <div class="study-head">
+                <h3 id="study-title" class="section-title"></h3>
+                <button id="study-close" class="btn btn--ghost btn--small" type="button">Close</button>
+              </div>
+              <div class="cards cards--three" id="study-cards"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-work" class="tab-panel" role="tabpanel" aria-labelledby="tab-work" hidden>
+          <div id="work-connect" class="work-connect" hidden>
+            <h2 class="brief-title">Track your work from GitHub</h2>
+            <p class="brief-summary">Connect GitHub to see the commits, branches and pull requests you push each day, with a written summary of each day.</p>
+            <button id="work-connect-button" class="btn btn--primary" type="button">Connect GitHub</button>
+          </div>
+
+          <div id="work-main" hidden>
+            <div class="learn-tabs" id="work-days" role="tablist" aria-label="Days"></div>
+            <div class="brief-head">
+              <div>
+                <h2 class="brief-title" id="work-title"></h2>
+                <p class="brief-summary" id="work-summary"></p>
+                <p class="work-status" id="work-status" aria-live="polite"></p>
+              </div>
+              <div class="work-actions">
+                <button id="work-copy" class="btn btn--ghost btn--small" type="button">Copy summary</button>
+                <button id="work-refresh" class="btn btn--ghost btn--small" type="button">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></svg>
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div class="stats" id="work-stats"></div>
+            <div class="work-repos" id="work-repos"></div>
+            <section class="brief-section" id="work-prs-section" aria-labelledby="work-prs-heading" hidden>
+              <h3 id="work-prs-heading" class="section-title">Pull requests</h3>
+              <ul class="work-prs" id="work-prs"></ul>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="settings" class="settings" aria-labelledby="settings-title">
+    <div class="settings-inner">
+      <div class="settings-head">
+        <h2 id="settings-title">Settings</h2>
+        <button id="close-settings" class="icon-btn" type="button" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+
+      <section class="setting">
+        <label class="setting-label" for="setting-name">Your name</label>
+        <input id="setting-name" class="field" type="text" placeholder="Shown in the greeting" maxlength="40" autocomplete="given-name">
+      </section>
+
+      <section class="setting">
+        <h3 class="setting-label">Appearance</h3>
+        <div class="segmented" role="radiogroup" aria-label="Theme">
+          <label><input type="radio" name="theme" value="system"><span>Match system</span></label>
+          <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+          <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+        </div>
+      </section>
+
+      <section class="setting">
+        <h3 class="setting-label">Sync with Supabase</h3>
+        <p class="setting-help" id="sync-status"></p>
+        <p class="setting-error" id="sync-error" hidden></p>
+        <form id="supabase-config" class="setting-form">
+          <input id="supabase-url" class="field" type="url" placeholder="Project URL, like https://abcd.supabase.co" aria-label="Supabase project URL" spellcheck="false" required>
+          <input id="supabase-key" class="field" type="text" placeholder="Publishable (anon) key" aria-label="Supabase publishable key" spellcheck="false" autocomplete="off" required>
+          <div class="setting-actions"><button class="btn" type="submit">Save project</button></div>
+        </form>
+        <form id="supabase-auth" class="setting-form" hidden>
+          <input id="supabase-email" class="field" type="email" placeholder="Email" aria-label="Email" autocomplete="username" required>
+          <input id="supabase-password" class="field" type="password" placeholder="Password, at least 6 characters" aria-label="Password" autocomplete="current-password" minlength="6" required>
+          <div class="setting-actions">
+            <button class="btn btn--primary" type="submit" value="signin">Sign in</button>
+            <button class="btn" type="submit" value="signup">Create account</button>
+          </div>
+        </form>
+        <div id="sync-signed-in" class="setting-actions" hidden>
+          <button id="sync-now" class="btn" type="button">Sync now</button>
+          <button id="sign-out" class="btn btn--ghost" type="button">Sign out</button>
+        </div>
+        <p class="setting-help">Run <code>supabase/schema.sql</code> in your project's SQL editor first. The README has the steps.</p>
+      </section>
+
+      <section class="setting" id="github-section">
+        <h3 class="setting-label">GitHub</h3>
+        <p class="setting-help" id="github-status"></p>
+        <form id="github-connect" class="setting-form">
+          <input id="github-token" class="field" type="password" placeholder="Personal access token" aria-label="GitHub personal access token" autocomplete="off" spellcheck="false" required>
+          <div class="setting-actions"><button class="btn btn--primary" type="submit">Connect</button></div>
+          <p class="setting-help">Create a <a href="https://github.com/settings/tokens/new?scopes=repo&amp;description=My%20Daily" target="_blank" rel="noopener">classic token with the repo scope</a> so private and work repositories are included. It's stored only on this computer.</p>
+        </form>
+        <div id="github-connected" class="setting-actions" hidden>
+          <button id="github-disconnect" class="btn btn--ghost" type="button">Disconnect</button>
+        </div>
+        <label class="setting-inline" for="work-summary-time">Write the day's summary at <input id="work-summary-time" class="field field--time" type="time"></label>
+        <label class="check-row"><input id="work-notify" type="checkbox"><span>Show it as a notification</span></label>
+        <label class="check-row"><input id="auto-done" type="checkbox"><span>Mark to-do items done when a commit I push matches them</span></label>
+      </section>
+
+      <section class="setting">
+        <h3 class="setting-label">Learning topics</h3>
+        <div id="setting-topics"></div>
+        <form id="topic-add" class="topic-add">
+          <input id="topic-add-name" class="field" type="text" placeholder="Add a topic, like Rust" aria-label="Topic name" maxlength="40">
+          <select id="topic-add-kind" class="field" aria-label="Topic type">
+            <option value="interest">Interest</option>
+            <option value="resume">Study topic</option>
+          </select>
+          <button class="btn" type="submit">Add topic</button>
+        </form>
+      </section>
+
+      <section class="setting">
+        <h3 class="setting-label">News sources</h3>
+        <div id="setting-sources" class="check-grid"></div>
+      </section>
+
+      <section class="setting">
+        <h3 class="setting-label">Backup</h3>
+        <p class="setting-help">Download your tasks and learning log as a file, or restore them from one.</p>
+        <div class="setting-actions">
+          <button id="export-data" class="btn" type="button">Export backup</button>
+          <button id="import-data" class="btn" type="button">Import backup</button>
+          <input id="import-file" type="file" accept="application/json,.json" hidden>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
