@@ -2,7 +2,7 @@
 
 A Chrome extension that turns every new tab into your daily dashboard. The left column holds your to-do list, the open tab's log (Learning log or Work history) and GitHub Trending. The rest of the width is for AI news, Learning or Work.
 
-- **To-do list**: tasks with due dates (overdue, today, upcoming, anytime), an important star, notes and links. The toolbar icon's badge shows how many are due. With GitHub connected, a task is marked done when you push a commit that matches it, and the Done section shows, day by day, what you pushed and what you finished.
+- **To-do list**: tasks with due dates (overdue, today, upcoming, anytime), an important star, notes and links. The toolbar icon's badge shows how many are due. Write out everything you need to do in one go and **Analyse** splits it into separate tasks. With GitHub connected, a task is marked done when you push a commit that matches it, and the Done section shows, day by day, what you pushed and what you finished.
 - **Trending on GitHub**: the list from github.com/trending, with the stars each repo gained today, this week or this month, filtered by language if you like. GitHub has no API for this page, so the extension reads the page itself, at most once an hour.
 - **AI news**: the latest from The Verge, TechCrunch, MIT Technology Review, Ars Technica, Wired, OpenAI, Google AI, Google DeepMind, Hugging Face, AI stories trending on Hacker News, and Hugging Face's daily papers. Each story has a title, description and image. Also:
   - **Your stack**: news about the tools you use (from GitHub). Fresh stories about them also go to the top of Headlines, labelled with the tool's name.
@@ -14,7 +14,7 @@ A Chrome extension that turns every new tab into your daily dashboard. The left 
   - **One tab per interest**: its top videos, trending stories and articles to study.
   - **All topics**: every topic, including all the skills on your resume, with how much of each you've covered.
   - Every item has a "Read it" (or "Watched it") and "Tried it" checkbox. These feed your streak, weekly counts and learning log.
-- **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a written summary of what you worked on and where, and a daily summary is written automatically at a time you choose.
+- **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a few short bullets on what you worked on and where, and a daily summary is written automatically at a time you choose. Your GitHub contribution graph (the green squares from your profile) sits below, with your current and longest streak.
 - **Supabase sync** (optional): tasks, learning log, work history and settings are saved locally first, so everything is instant, then synced to your own Supabase project.
 
 It runs only in your Chrome. Nothing goes through the Chrome Web Store.
@@ -38,10 +38,10 @@ The extension loads straight from `extension/`, so keep that folder where it is.
 
 | Where | What you can do |
 | --- | --- |
-| To-do | Type a task and press Enter. Pick Today, Tomorrow, No date or a date first, and the star for important. Click a task to edit its title, notes or date, or to delete it (with undo). |
+| To-do | Type a task and press Enter (Shift+Enter starts a new line; the box grows). **+** adds it, and a pasted list becomes one task per line. **✦ Analyse** reads a whole paragraph ("I have to call Priya, then fix the login bug and send the invoice tomorrow, it's urgent…") and proposes separate tasks, with due days and stars picked up from the words. Check them, edit or leave any out, then add them all. Pick Today, Tomorrow, No date or a date first for tasks that don't say. Click a task to edit its title, notes or date, or to delete it (with undo). |
 | AI news | Switch between Your stack, Headlines, News, AI labs, Hacker News, Papers and Models. **To-do** on a card adds the story to your list. News refreshes every 15 minutes while a tab is open. |
 | Learning | Switch between Your stack, Suggested, Today, your interests and All topics. **Scan again** re-checks GitHub for your tools (it does so on its own twice a day). Tick **Read it**, **Watched it** or **Tried it** on anything. **Different picks** swaps today's lessons. In All topics, pick a topic to see its best articles. A topic counts as covered after 5 articles. |
-| Work | Switch between Today, Yesterday and earlier days. **Copy summary** copies the day as Markdown for a standup or a chat. **Refresh** checks GitHub again (it also does that every 10 minutes while the tab is open). |
+| Work | Switch between Today, Yesterday and earlier days. **Listen** reads the summary aloud, **Copy summary** copies it as Markdown bullets for a standup or a chat, and **Refresh** checks GitHub again (it also does that every 10 minutes while the tab is open). Hover a square in the contribution graph for that day's count. |
 | Settings (top right) | Your name, light or dark, Supabase sync, GitHub and the time of the daily summary, learning topics (turn off, or add your own), news sources, and backup or restore. |
 
 Keyboard: `/` jumps to search, `n` jumps to the new-task box.
@@ -65,11 +65,21 @@ Once signed in, changes upload about a second after you make them. Changes from 
 
 **Your stack** comes from the repos you pushed to in the last two weeks: their languages, `package.json` dependencies and telltale files (`supabase/`, `Dockerfile`, `vercel.json`…). Repos you pushed to recently, and committed to most, count for more. The list of tools it recognises, and where to follow each one, is in [extension/js/stack.js](extension/js/stack.js).
 
+**How Analyse splits your text:** when your Chrome has its built-in on-device AI (Gemini Nano, through Chrome's Prompt API), that does the splitting. It's free and private, and nothing leaves your computer. The first time, Chrome may need to download the model, and until it's ready a rule-based splitter is used. That splitter handles lists, sentences, "then", "also" and "and <verb>", strips openers like "I have to", reads "today", "tomorrow" and "by Friday" as due days, and reads "urgent" or "ASAP" as important. The preview says which one was used.
+
 **To-do items done by commits:**
 - **What matches:** a commit matches an open task when it shares at least two of the task's keywords, covering 60% or more of them. Generic words like "fix", "add" and "update" don't count, so "Fix login redirect" is matched by "fix: login redirect loop" but not by "fix: signup redirect".
 - **Timing:** only commits made after the task was created count. They're checked every 10 minutes while a dashboard tab is open.
 - **Wrong match:** untick the task (or press **Undo**) and that commit won't be matched to it again.
 - **Turn it off:** in **Settings → GitHub**.
+
+**Why a push might not show in your contribution graph.** The graph is GitHub's own, so GitHub's rules decide what counts. A commit counts when:
+- it was made with an email address linked to your GitHub account,
+- it's on the repository's default branch (feature-branch commits count once merged),
+- the repository isn't a fork,
+- for private repositories, "Include private contributions" is on in your profile settings.
+
+Check a repo with `git config user.email`. If it shows someone else's address (a shared team account, say), set your own for that repo with `git config user.email you@example.com`.
 
 How the Work tab finds your commits:
 - **Which pushes:** your GitHub event feed lists each push, and the extension expands each one into its commits. Only commits you authored count, so teammates' commits merged into your branch aren't included. Merge commits are listed but not counted.
@@ -122,6 +132,7 @@ my-daily/
     └── js/
         ├── app.js           start-up, header, tabs, search, shortcuts
         ├── tasks.js         to-do list
+        ├── tasksplit.js     Analyse: splits a paragraph into tasks
         ├── feed.js          AI news tab
         ├── news.js          fetching and parsing feeds, Hacker News, Hugging Face
         ├── learning.js      Learning sub-tabs, daily brief, Read it / Tried it, stats, log
@@ -131,6 +142,7 @@ my-daily/
         ├── cards.js         the story card shared by both tabs
         ├── preview.js       Open Graph preview images (ported from uptime)
         ├── work.js          Work tab
+        ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
         ├── stack.js         your stack: tools found in your repos, and news about them
         ├── trending.js      Trending on GitHub (reads github.com/trending)

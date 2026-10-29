@@ -38,8 +38,15 @@
           <h2 id="tasks-heading" class="panel-title">To-do</h2>
           <form id="task-form" class="task-form" autocomplete="off">
             <div class="task-form-main">
-              <input id="task-input" class="field field--big" type="text" placeholder="Add a task" aria-label="New task" maxlength="500">
-              <button class="btn btn--primary btn--big" type="submit">Add</button>
+              <textarea id="task-input" class="field field--big task-input" rows="1" placeholder="Add one task, or many" aria-label="New task, or several to analyse" maxlength="5000"></textarea>
+              <div class="task-form-buttons">
+                <button class="icon-btn icon-btn--small-box icon-btn--primary" type="submit" aria-label="Add" title="Add (Enter). Each line becomes a task.">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <button id="task-analyse" class="icon-btn icon-btn--small-box" type="button" aria-label="Analyse into separate tasks" title="Analyse: split everything you wrote into separate tasks">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.7 4.8 4.8 1.7-4.8 1.7L11 16.5l-1.7-4.8L4.5 10l4.8-1.7zM18 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+                </button>
+              </div>
             </div>
             <div class="task-form-row">
               <div class="segmented" role="group" aria-label="Due date">
@@ -52,6 +59,7 @@
                 <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.6-5 2.6 1-5.6-4.1-3.9 5.6-.8z"/></svg>
               </button>
             </div>
+            <div id="task-proposals" class="task-proposals" aria-live="polite" hidden></div>
           </form>
           <div id="task-groups" class="task-groups"></div>
         </section>
@@ -228,21 +236,43 @@
           </div>
 
           <div id="work-main" hidden>
-            <div class="learn-tabs" id="work-days" role="tablist" aria-label="Days"></div>
-            <div class="brief-head">
-              <div>
-                <h2 class="brief-title" id="work-title"></h2>
-                <p class="brief-summary" id="work-summary"></p>
-                <p class="work-status" id="work-status" aria-live="polite"></p>
-              </div>
+            <!-- Days on the left, the summary's actions on the right, so the summary gets the full width. -->
+            <div class="work-bar">
+              <div class="learn-tabs" id="work-days" role="tablist" aria-label="Days"></div>
               <div class="work-actions">
-                <button id="work-copy" class="btn btn--ghost btn--small" type="button">Copy summary</button>
+                <span class="work-status" id="work-status" aria-live="polite"></span>
+                <button id="work-listen" class="btn btn--ghost btn--small" type="button" aria-pressed="false" title="Read the summary aloud">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+                  <span>Listen</span>
+                </button>
+                <button id="work-copy" class="btn btn--ghost btn--small" type="button">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 8.5h10v11h-10zM15.5 8.5v-3h-10v11h3"/></svg>
+                  Copy summary
+                </button>
                 <button id="work-refresh" class="btn btn--ghost btn--small" type="button">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></svg>
                   Refresh
                 </button>
               </div>
             </div>
+            <h2 class="visually-hidden" id="work-title"></h2>
+            <ul class="work-points" id="work-points"></ul>
+            <section class="contrib" id="contrib-section" aria-labelledby="contrib-heading" hidden>
+              <h3 id="contrib-heading" class="section-title">Your GitHub contributions</h3>
+              <div class="contrib-stats" id="contrib-stats"></div>
+              <div id="contrib-graph"></div>
+              <details class="contrib-help">
+                <summary>Why isn't a push showing here?</summary>
+                <p>These are the squares from your GitHub profile, and GitHub decides what counts. A commit counts when:</p>
+                <ul>
+                  <li>it was made with an email address linked to your GitHub account (in that repo, <code>git config user.email</code> shows which one),</li>
+                  <li>it's on the repository's default branch, usually <code>main</code>. Commits on other branches count once they're merged,</li>
+                  <li>the repository isn't a fork,</li>
+                  <li>for private repositories, "Include private contributions" is on in your GitHub profile settings.</li>
+                </ul>
+                <p>New contributions can take a little while to appear.</p>
+              </details>
+            </section>
             <div class="stats" id="work-stats"></div>
             <div class="work-repos" id="work-repos"></div>
             <section class="brief-section" id="work-prs-section" aria-labelledby="work-prs-heading" hidden>

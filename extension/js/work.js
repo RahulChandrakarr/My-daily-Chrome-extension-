@@ -8,6 +8,7 @@ import { load, save, watch } from './store.js';
 import { markDirty } from './sync.js';
 import { buildWorkDays, saveWorkRecords, workMarkdown, cleanSubject, dayLabel } from './github.js';
 import { completeFromCommits } from './tasks.js';
+import { initContributions, refreshContributions } from './contributions.js';
 import { openSettings } from './settings.js';
 import { dateKey, addDays, timeAgo } from './dates.js';
 import { el, toast, plural } from './ui.js';
@@ -49,9 +50,11 @@ export async function initWork() {
   });
   $('work-refresh').addEventListener('click', () => refreshWork({ force: true }));
   $('work-copy').addEventListener('click', copySummary);
+  $('work-listen').addEventListener('click', listen);
   $('work-connect-button').addEventListener('click', () => openSettings('github-section'));
 
   render();
+  initContributions();
   completeFromCommits(records.slice(0, 2));
   refreshWork();
   setInterval(() => { if (!document.hidden) refreshWork(); }, 60_000);
@@ -63,8 +66,10 @@ export function setWorkVisible(isVisible) {
 }
 
 // Rebuilds today when it's more than a few minutes old, and yesterday until
-// it has been written after the day ended.
+// it has been written after the day ended. The contribution graph refreshes
+// alongside, while the Work tab is open.
 async function refreshWork({ force = false } = {}) {
+  if (visible || force) refreshContributions({ force });
   if (!auth?.token || loading) return;
   const today = dateKey();
   const yesterday = addDays(today, -1);
@@ -98,6 +103,30 @@ async function copySummary() {
   } catch {
     toast('Couldn\'t copy. Select the summary text and copy it instead.');
   }
+}
+
+const pointsOf = (record) => (record.points?.length ? record.points : [record.summary]);
+
+// Reads the day's bullets aloud with Chrome's built-in speech; pressing again stops.
+function listen() {
+  const button = $('work-listen');
+  if (speechSynthesis.speaking) {
+    speechSynthesis.cancel();
+    return;
+  }
+  const record = records.find((r) => r.id === view);
+  if (!record) return;
+  const speech = new SpeechSynthesisUtterance(`${dayLabel(view)}. ${pointsOf(record).join('. ')}.`.replace(/\+/g, 'plus ').replace(/−/g, 'minus '));
+  speech.rate = 1.05;
+  const done = () => {
+    button.setAttribute('aria-pressed', 'false');
+    button.querySelector('span').textContent = 'Listen';
+  };
+  speech.onend = done;
+  speech.onerror = done;
+  button.setAttribute('aria-pressed', 'true');
+  button.querySelector('span').textContent = 'Stop';
+  speechSynthesis.speak(speech);
 }
 
 // --- Rendering ------------------------------------------------------------------
@@ -142,31 +171,36 @@ function renderDays() {
 
 function showDay(day) {
   view = day;
+  globalThis.speechSynthesis?.cancel();
   render();
 }
 
 function renderDay() {
   const record = records.find((r) => r.id === view);
-  $('work-title').textContent = dayLabel(view);
+  $('work-title').textContent = `${dayLabel(view)}: summary`;
   $('work-copy').disabled = !record;
+  $('work-listen').disabled = !record || !globalThis.speechSynthesis;
   $('work-refresh').classList.toggle('is-loading', loading);
 
   let status = '';
   if (loading) status = 'Checking GitHub…';
   else if (error) status = error;
-  else if (record) status = `Updated ${timeAgo(record.generatedAt)}${auth?.login ? ` from @${auth.login}` : ''}`;
+  else if (record) status = `Updated ${timeAgo(record.generatedAt)}`;
   $('work-status').textContent = status;
+  $('work-status').title = record && auth?.login ? `From @${auth.login}` : '';
   $('work-status').classList.toggle('is-error', Boolean(error) && !loading);
 
   if (!record) {
-    $('work-summary').textContent = loading ? 'Looking at what you pushed…' : 'There\'s no summary for this day.';
+    $('work-points').replaceChildren(el('li', 'work-point is-plain', { text: loading ? 'Looking at what you pushed…' : 'There\'s no summary for this day.' }));
     $('work-stats').replaceChildren();
     $('work-repos').replaceChildren();
     $('work-prs-section').hidden = true;
     return;
   }
 
-  $('work-summary').textContent = record.summary;
+  // The first bullet is the headline; nothing pushed reads as a plain line.
+  const quiet = !record.points?.length;
+  $('work-points').replaceChildren(...pointsOf(record).map((point, i) => el('li', `work-point${quiet ? ' is-plain' : ''}${i === 0 && !quiet ? ' is-lead' : ''}`, { text: point })));
   const { stats } = record;
   const prCount = stats.opened + stats.merged + stats.reviewed;
   const statItems = [

@@ -49,6 +49,12 @@
   --toast-border: transparent;
   --backdrop: rgba(12, 15, 30, 0.5);
   --image-filter: none;
+  /* The contribution graph's greens, as on GitHub. */
+  --contrib-0: #ebedf0;
+  --contrib-1: #9be9a8;
+  --contrib-2: #40c463;
+  --contrib-3: #30a14e;
+  --contrib-4: #216e39;
   color-scheme: light;
 }
 
@@ -86,6 +92,11 @@
     --toast-border: rgba(255, 255, 255, 0.1);
     --backdrop: rgba(0, 0, 0, 0.6);
     --image-filter: brightness(0.9);
+    --contrib-0: #1c1c1f;
+    --contrib-1: #0e4429;
+    --contrib-2: #006d32;
+    --contrib-3: #26a641;
+    --contrib-4: #39d353;
     color-scheme: dark;
   }
 }
@@ -123,6 +134,11 @@
   --toast-border: rgba(255, 255, 255, 0.1);
   --backdrop: rgba(0, 0, 0, 0.6);
   --image-filter: brightness(0.9);
+  --contrib-0: #1c1c1f;
+  --contrib-1: #0e4429;
+  --contrib-2: #006d32;
+  --contrib-3: #26a641;
+  --contrib-4: #39d353;
   color-scheme: dark;
 }
 
@@ -385,9 +401,58 @@ select.field { width: auto; }
 /* --- To-do --------------------------------------------------------------- */
 
 .task-form { display: grid; gap: 8px; margin: 14px 0 20px; }
-.task-form-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.task-form-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; }
 .task-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.btn--big { min-height: 46px; padding: 0 18px; font-size: 15px; }
+
+/* The box starts one line tall and grows with what you write (see tasks.js).
+   textarea.task-input outranks the general textarea.field size above. */
+textarea.task-input {
+  display: block;
+  min-height: 46px;
+  max-height: 220px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+  overflow-y: auto;
+  line-height: 1.45;
+  resize: none;
+}
+
+/* Add and Analyse: small, icon-only. */
+.task-form-buttons { display: flex; gap: 6px; }
+.icon-btn--small-box { width: 40px; height: 46px; border-radius: 10px; }
+.icon-btn--primary { border-color: var(--primary-bg); background: var(--primary-bg); color: var(--primary-fg); }
+.icon-btn--primary:hover { border-color: var(--primary-bg); opacity: 0.88; }
+.icon-btn:disabled { cursor: default; opacity: 0.6; }
+.icon-btn.is-loading svg { animation: pulse 0.9s ease-in-out infinite; }
+
+/* Tasks found by Analyse, to check before adding. */
+.task-proposals {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  animation: appear 220ms ease-out both;
+}
+.proposals-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.proposals-title { font-size: 14px; font-weight: 650; }
+.proposals-method { color: var(--muted); font-size: 12px; }
+.proposals { display: grid; margin: 0; padding: 0; list-style: none; }
+/* Each found task: its name across the full width, then due day, star and remove. */
+.proposal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px 4px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.proposal:first-child { border-top: 0; }
+.proposal .field { grid-column: 1 / -1; min-height: 34px; background: var(--surface); }
+.proposal .due { justify-self: start; font-size: 12px; white-space: nowrap; }
+.proposals-note { color: var(--muted); font-size: 12.5px; }
+.proposals-actions { display: flex; gap: 6px; }
 
 .date-pick {
   height: 34px;
@@ -1023,10 +1088,93 @@ select.field { width: auto; }
 /* --- Work ------------------------------------------------------------------------ */
 
 .work-connect { display: grid; justify-items: start; gap: 12px; max-width: 60ch; padding: 8px 0 24px; }
-.work-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.work-status { margin-top: 6px; color: var(--muted); font-size: 13px; }
+
+/* Days on the left; status, Listen, Copy and Refresh on the right. */
+.work-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; }
+.work-bar .learn-tabs { margin-bottom: 0; }
+.work-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.work-status { margin-right: 6px; color: var(--muted); font-size: 13px; }
 .work-status:empty { display: none; }
 .work-status.is-error { color: var(--late); }
+#work-listen[aria-pressed="true"] { color: var(--accent-ink); }
+
+/* The summary: a few short bullets across the full width. */
+.work-points { display: grid; gap: 6px; margin: 0 0 22px; padding: 0; list-style: none; }
+.work-point {
+  position: relative;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 15.5px;
+  line-height: 1.45;
+  animation: appear 260ms ease-out both;
+}
+.work-point::before {
+  content: '';
+  position: absolute;
+  top: 0.62em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.work-point.is-lead { font-size: 17px; font-weight: 640; }
+.work-point.is-plain { padding-left: 0; color: var(--muted); }
+.work-point.is-plain::before { display: none; }
+.work-points > :nth-child(2) { animation-delay: 40ms; }
+.work-points > :nth-child(3) { animation-delay: 80ms; }
+.work-points > :nth-child(n + 4) { animation-delay: 120ms; }
+
+/* Contribution graph: GitHub's green squares, weeks across, days down. */
+.contrib {
+  margin: 0 0 26px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  animation: appear 280ms ease-out both;
+}
+.contrib .section-title { margin-bottom: 0; }
+.contrib-stats { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 10px 0 14px; }
+.contrib-stat { display: grid; }
+.contrib-stat-value { font-size: 20px; font-weight: 700; font-stretch: 85%; font-variant-numeric: tabular-nums; }
+.contrib-stat.is-accent .contrib-stat-value { color: var(--done); }
+.contrib-stat-label { color: var(--muted); font-size: 12.5px; }
+.contrib-note { color: var(--muted); font-size: 13px; }
+.contrib-wrap { overflow-x: auto; padding-bottom: 2px; }
+.contrib-grid {
+  display: grid;
+  grid-template-columns: 28px repeat(var(--weeks, 53), minmax(9px, 1fr));
+  grid-template-rows: 15px repeat(7, auto);
+  gap: 3px;
+  min-width: 560px;
+}
+.contrib-day { aspect-ratio: 1; border-radius: 3px; background: var(--contrib-0); }
+.contrib-day.level-1 { background: var(--contrib-1); }
+.contrib-day.level-2 { background: var(--contrib-2); }
+.contrib-day.level-3 { background: var(--contrib-3); }
+.contrib-day.level-4 { background: var(--contrib-4); }
+.contrib-day.is-today { box-shadow: 0 0 0 1.5px var(--accent-ink); }
+.contrib-month { grid-row: 1; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.contrib-weekday { grid-column: 1; align-self: center; color: var(--muted); font-size: 11px; }
+.contrib-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.contrib-legend .contrib-day { width: 11px; height: 11px; }
+.contrib-help { margin-top: 10px; color: var(--muted); font-size: 13.5px; }
+.contrib-help summary { width: fit-content; cursor: pointer; }
+.contrib-help summary:hover { color: var(--text); }
+.contrib-help p, .contrib-help ul { margin: 8px 0 0; }
+.contrib-help ul { padding-left: 18px; }
+.contrib-help code { padding: 1px 5px; border-radius: 5px; background: var(--surface-2); font-size: 12.5px; }
+
+/* For screen readers only. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 .work-repos { display: grid; gap: 16px; margin-bottom: 30px; }
 .work-repo {

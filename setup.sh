@@ -26,8 +26,8 @@ fail() { printf '  %s✗ %s%s\n' "$RED" "$1" "$RESET"; exit 1; }
 step "Checking the extension files"
 REQUIRED=(
   manifest.json dashboard.html background.js css/dashboard.css fonts/BricolageGrotesque.woff2
-  js/app.js js/cards.js js/dates.js js/devto.js js/feed.js js/github.js js/learning.js js/net.js js/news.js js/preview.js
-  js/settings.js js/sources.js js/stack.js js/store.js js/suggestions.js js/sync.js js/tasks.js js/theme-boot.js js/topics.js js/trending.js js/ui.js js/work.js
+  js/app.js js/cards.js js/contributions.js js/dates.js js/devto.js js/feed.js js/github.js js/learning.js js/net.js js/news.js js/preview.js
+  js/settings.js js/sources.js js/stack.js js/store.js js/suggestions.js js/sync.js js/tasks.js js/tasksplit.js js/theme-boot.js js/topics.js js/trending.js js/ui.js js/work.js
 )
 for file in "${REQUIRED[@]}"; do
   [[ -f "$EXT/$file" ]] || fail "Missing extension/$file"

@@ -2,10 +2,12 @@
 // they went to and the pull requests you opened, merged or reviewed on a day,
 // plus a written summary of that day.
 //
-// How it finds your work: your event feed lists every push (private and
-// organisation repos included, when the token can see them). GitHub no longer
-// lists commits inside push events, so each push is expanded with the compare
-// API. Commit details (lines and files changed) never change, so they're cached.
+// How it finds your work: the repos you pushed to recently, and each one's
+// activity log, list your pushes as they happen. Your event feed adds pull
+// requests and fills gaps (it can lag by hours, so it isn't relied on alone).
+// GitHub doesn't list commits inside pushes, so each push is expanded with the
+// compare API. Commit details (lines and files changed) never change, so
+// they're cached.
 //
 // There's no page code here, so the background service worker can use it to
 // write the end-of-day summary.
@@ -58,9 +60,17 @@ export async function verifyToken(token) {
 // One work record per day ('YYYY-MM-DD', local time).
 export async function buildWorkDays(token, login, days) {
   const from = parseKey([...days].sort()[0]).getTime();
-  const events = await eventsSince(token, login, from);
+  // A rejected token should stop everything; other failures just mean less to go on.
+  const softly = (promise) => promise.catch((error) => {
+    if (error.status === 401) throw error;
+    return [];
+  });
+  const [events, activity] = await Promise.all([
+    softly(eventsSince(token, login, from)),
+    softly(recentPushes(token, login, from)),
+  ]);
   const [commits, prs] = await Promise.all([
-    commitsFromPushes(token, login, events, from),
+    commitsFromPushes(token, login, mergePushes(activity, events), from),
     pullRequests(token, events),
   ]);
   return days.map((day) => {
@@ -95,16 +105,43 @@ async function eventsSince(token, login, from) {
   return events.filter((e) => Date.parse(e.created_at) >= from);
 }
 
-async function commitsFromPushes(token, login, events, from) {
-  const pushes = events.filter((e) => e.type === 'PushEvent' && e.payload?.head && !ZERO_SHA.test(e.payload.head));
+// Your pushes from each recently pushed repo's activity log, which is up to
+// date (unlike the event feed). Pushes, force pushes and new branches count.
+async function recentPushes(token, login, from) {
+  const repos = await gh(token, token
+    ? '/user/repos?sort=pushed&per_page=30&affiliation=owner,collaborator,organization_member'
+    : `/users/${encodeURIComponent(login)}/repos?sort=pushed&per_page=30`);
+  const active = repos.filter((r) => Date.parse(r.pushed_at) >= from).slice(0, 15);
+  const period = Date.now() - from > 6 * 24 * 60 * 60 * 1000 ? 'month' : 'week';
+  const logs = await mapLimit(active, 4, (repo) => gh(token, `/repos/${repo.full_name}/activity?actor=${encodeURIComponent(login)}&time_period=${period}&per_page=100`).catch(() => []));
+  return active.flatMap((repo, i) => logs[i]
+    .filter((a) => ['push', 'force_push', 'branch_creation'].includes(a.activity_type) && Date.parse(a.timestamp) >= from)
+    .map((a) => ({ repo: repo.full_name, ref: a.ref, before: a.before, head: a.after, at: Date.parse(a.timestamp) })));
+}
+
+// One list of pushes from both sources, without repeats.
+function mergePushes(activity, events) {
+  const fromEvents = events
+    .filter((e) => e.type === 'PushEvent' && e.payload?.head)
+    .map((e) => ({ repo: e.repo.name, ref: e.payload.ref, before: e.payload.before, head: e.payload.head, at: Date.parse(e.created_at) }));
+  const seen = new Set();
+  return [...activity, ...fromEvents].filter((p) => {
+    const key = `${p.repo}:${p.head}`;
+    if (!p.head || ZERO_SHA.test(p.head) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function commitsFromPushes(token, login, pushes, from) {
   const me = login.toLowerCase();
   const isMine = (c) => [c.author?.login, c.committer?.login].some((name) => name?.toLowerCase() === me);
   const lists = await mapLimit(pushes, 4, (push) => pushedCommits(token, login, push, from).catch(() => []));
 
   const found = new Map();
   pushes.forEach((push, i) => {
-    const repo = push.repo.name;
-    const branch = (push.payload.ref || '').replace(/^refs\/heads\//, '');
+    const { repo } = push;
+    const branch = (push.ref || '').replace(/^refs\/heads\//, '');
     for (const c of lists[i]) {
       if (!isMine(c)) continue;
       const known = found.get(c.sha);
@@ -113,7 +150,7 @@ async function commitsFromPushes(token, login, events, from) {
         continue;
       }
       // When the commit was last made (a rebase or amend counts), else when it was pushed.
-      const at = Date.parse(c.commit?.committer?.date || c.commit?.author?.date) || Date.parse(push.created_at);
+      const at = Date.parse(c.commit?.committer?.date || c.commit?.author?.date) || push.at;
       if (at < from) continue;
       found.set(c.sha, {
         sha: c.sha,
@@ -143,8 +180,7 @@ async function commitsFromPushes(token, login, events, from) {
 }
 
 async function pushedCommits(token, login, push, from) {
-  const repo = push.repo.name;
-  const { before, head } = push.payload;
+  const { repo, before, head } = push;
   if (before && !ZERO_SHA.test(before)) {
     try {
       const compare = await gh(token, `/repos/${repo}/compare/${before}...${head}`);
@@ -251,7 +287,8 @@ export function summarizeDay(day, commits, prs) {
     final: now >= parseKey(addDays(day, 1)).getTime(), // written after the day ended
     updatedAt: now,
   };
-  record.summary = writeSummary(day, record);
+  record.points = summaryPoints(record);
+  record.summary = shortSummary(day, record);
   return record;
 }
 
@@ -277,7 +314,12 @@ function groupByRepo(commits) {
       additions: own.reduce((n, c) => n + c.additions, 0),
       deletions: own.reduce((n, c) => n + c.deletions, 0),
       branches: [...new Set(list.flatMap((c) => c.branches))],
-      areas: [...areas].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([area]) => area),
+      // Busiest folders first; "extension" is dropped when "extension/js" is listed.
+      areas: [...areas]
+        .sort((a, b) => b[1] - a[1])
+        .map(([area]) => area)
+        .filter((area, _, all) => !all.some((other) => other.startsWith(`${area}/`)))
+        .slice(0, 4),
       commits: list.sort((a, b) => b.at - a.at).map(({ files, repo: _, ...c }) => c),
     };
   }).sort((a, b) => b.count - a.count || (b.additions + b.deletions) - (a.additions + a.deletions));
@@ -312,57 +354,61 @@ export function dayLabel(day) {
   return parseKey(day).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-function writeSummary(day, { stats, repos, prs, highlights: points }) {
-  const label = dayLabel(day);
-  const when = label === 'Today' || label === 'Yesterday' ? label : `On ${label}`;
-  if (!stats.commits && !stats.merges && !prs.length) {
-    return label === 'Today' ? 'Nothing pushed to GitHub yet today.' : `${when}, nothing was pushed to GitHub.`;
-  }
+const capitalise = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-  const did = [];
+// The day in a few short bullets, in active voice: how much, where, then
+// what (the biggest commits).
+//   2 commits in WBT_CHQ, +192 −11 lines
+//   Merged 1 pull request
+//   On feature/lead-scoring, in app/api and lib/leads
+//   Add lead scoring endpoint
+function summaryPoints({ stats, repos, prs, highlights: biggest }) {
+  if (!stats.commits && !stats.merges && !prs.length) return [];
+  const points = [];
   if (stats.commits) {
-    let commits = `made ${plural(stats.commits, 'commit')}`;
-    commits += stats.repos > 1 ? ` across ${stats.repos} repos` : ` in ${repos[0].repo}`;
-    if (stats.additions || stats.deletions) commits += ` (+${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)} lines)`;
-    did.push(commits);
+    const where = stats.repos > 1 ? `across ${stats.repos} repos` : `in ${repos[0].repo}`;
+    const lines = stats.additions || stats.deletions
+      ? `, +${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)} lines`
+      : '';
+    points.push(`${plural(stats.commits, 'commit')} ${where}${lines}`);
   }
-  const prParts = [['merged', stats.merged], ['opened', stats.opened], ['reviewed', stats.reviewed]].filter(([, n]) => n);
-  prParts.forEach(([verb, n], i) => did.push(i === 0 ? `${verb} ${plural(n, 'pull request')}` : `${verb} ${n}`));
-  const sentences = [`${when} you ${listFormat.format(did)}.`];
+  const reviewWork = [['Merged', stats.merged], ['Opened', stats.opened], ['Reviewed', stats.reviewed]]
+    .filter(([, n]) => n)
+    .map(([verb, n], i) => (i === 0 ? `${verb} ${plural(n, 'pull request')}` : `${verb.toLowerCase()} ${n}`));
+  if (reviewWork.length) points.push(listFormat.format(reviewWork));
 
   const lead = repos[0];
   if (lead) {
-    const branch = lead.branches.length === 1 ? ` on ${lead.branches[0]}` : lead.branches.length > 1 ? ` across ${lead.branches.length} branches` : '';
-    const areas = lead.areas.length ? `, mainly in ${listFormat.format(lead.areas.slice(0, 3))}` : '';
-    if (repos.length > 1) {
-      sentences.push(`Most of it was in ${lead.repo}${branch}${areas}.`);
-    } else if (lead.branches.length) {
-      const where = lead.branches.length === 1 ? lead.branches[0] : `${lead.branches.length} branches`;
-      sentences.push(`It went to ${where}${areas}.`);
-    } else if (lead.areas.length) {
-      sentences.push(`Mostly in ${listFormat.format(lead.areas.slice(0, 3))}.`);
-    }
+    const branch = lead.branches.length === 1 ? `on ${lead.branches[0]}` : lead.branches.length > 1 ? `across ${lead.branches.length} branches` : '';
+    const areas = lead.areas.length ? `in ${listFormat.format(lead.areas.slice(0, 3))}` : '';
+    const where = [repos.length > 1 ? `Mostly ${lead.repo}` : '', branch, areas].filter(Boolean).join(', ');
+    if (where) points.push(capitalise(where));
     if (repos.length > 1) {
       const others = repos.slice(1, 4).map((r) => `${r.repo} (${plural(r.count, 'commit')})`);
-      sentences.push(`Also ${listFormat.format(others)}${repos.length > 4 ? ` and ${repos.length - 4} more` : ''}.`);
+      points.push(`Also ${listFormat.format(others)}${repos.length > 4 ? ` and ${repos.length - 4} more` : ''}`);
     }
   }
-  if (points.length) sentences.push(`Highlights: ${points.join('; ')}.`);
-  return sentences.join(' ');
+  return [...points, ...biggest].slice(0, 6);
 }
 
-// The day as Markdown, for pasting into a standup or a chat.
+// One line for the notification, the work history and the to-do Done section.
+function shortSummary(day, record) {
+  const label = dayLabel(day);
+  if (!record.points.length) {
+    return label === 'Today' ? 'Nothing pushed to GitHub yet today.' : `Nothing pushed to GitHub ${label === 'Yesterday' ? 'yesterday' : `on ${label}`}.`;
+  }
+  const [first, second] = record.points;
+  return `${label}: ${first}${second ? `; ${second.charAt(0).toLowerCase()}${second.slice(1)}` : ''}.`;
+}
+
+// The day as short Markdown bullets, for pasting into a standup or a chat.
 export function workMarkdown(record) {
   const date = parseKey(record.id).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const lines = [`**Work summary: ${date}**`, '', record.summary];
-  for (const repo of record.repos) {
-    const meta = [plural(repo.count, 'commit'), `+${repo.additions} −${repo.deletions}`, ...repo.branches].join(', ');
-    lines.push('', `**${repo.repo}** (${meta})`);
-    repo.commits.filter((c) => !c.merge).slice(0, 10).forEach((c) => lines.push(`- ${cleanSubject(c.message)}`));
-  }
+  const points = record.points?.length ? record.points : [record.summary];
+  const lines = [`**Work summary: ${date}**`, ...points.map((p) => `- ${p}`)];
   if (record.prs.length) {
     lines.push('', '**Pull requests**');
-    record.prs.forEach((p) => lines.push(`- ${p.action.charAt(0).toUpperCase()}${p.action.slice(1)} #${p.number} ${p.title} (${p.repo.split('/')[1]})`));
+    record.prs.forEach((p) => lines.push(`- ${capitalise(p.action)} #${p.number} ${p.title} (${p.repo.split('/')[1]})`));
   }
   return lines.join('\n');
 }

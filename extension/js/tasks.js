@@ -7,6 +7,7 @@
 import { load, save, watch, stableJson } from './store.js';
 import { markDirty } from './sync.js';
 import { dayLabel } from './github.js';
+import { splitTasks } from './tasksplit.js';
 import { dateKey, addDays, formatDue } from './dates.js';
 import { el, icon, safeUrl, toast, plural } from './ui.js';
 
@@ -22,7 +23,9 @@ let showDone = false;
 let draftDue = 'today'; // '', 'today', 'tomorrow' or a YYYY-MM-DD date
 let draftImportant = false;
 let autoDone = true; // mark tasks done from matching commits
-let enteringId = null; // the task just added, which animates in
+let entering = new Set(); // tasks just added, which animate in
+let proposals = null; // tasks found by Analyse, waiting to be added
+let proposalInfo = { method: 'rules', note: null };
 let workDays = []; // the Work tab's saved days, for the Done section
 const listeners = new Set();
 const listFormat = new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' });
@@ -123,9 +126,14 @@ export function completeFromCommits(records) {
   });
 }
 
-export function addTask({ title, due = null, important = false, url = null, notes = '' }) {
+export function addTask(fields) {
+  return addTasks([fields])[0];
+}
+
+// Adds several tasks at once, keeping their order.
+export function addTasks(list) {
   const now = Date.now();
-  const task = {
+  const created = list.map(({ title, due = null, important = false, url = null, notes = '' }, i) => ({
     id: crypto.randomUUID(),
     title: title.trim(),
     notes,
@@ -134,15 +142,15 @@ export function addTask({ title, due = null, important = false, url = null, note
     url: safeUrl(url),
     done: false,
     doneAt: null,
-    createdAt: now,
+    createdAt: now + i, // tasks sort oldest first, so the first one stays first
     updatedAt: now,
     deleted: false,
-  };
-  tasks.unshift(task);
-  enteringId = task.id;
-  commit([task.id]);
-  enteringId = null;
-  return task;
+  }));
+  tasks.unshift(...created);
+  entering = new Set(created.map((t) => t.id));
+  commit(created.map((t) => t.id));
+  entering = new Set();
+  return created;
 }
 
 export function hasOpenTaskFor(url) {
@@ -303,7 +311,7 @@ function renderTask(task, today) {
   li.classList.toggle('is-done', task.done);
   li.classList.toggle('is-important', task.important);
   li.classList.toggle('is-open', isOpen);
-  li.classList.toggle('is-entering', task.id === enteringId);
+  li.classList.toggle('is-entering', entering.has(task.id));
 
   const check = el('input', 'task-check', { type: 'checkbox', 'aria-label': `Done: ${task.title}` });
   check.checked = task.done;
@@ -462,18 +470,146 @@ function bindForm() {
     draftImportant = !draftImportant;
     star.setAttribute('aria-pressed', String(draftImportant));
   });
+
+  // The box grows with what you write. Enter adds; Shift+Enter starts a new line.
+  input.addEventListener('input', growInput);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  // Add: what you wrote becomes a task; each line of a pasted list becomes its own.
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    const title = input.value.trim();
-    if (!title) return;
-    const due = draftDue === 'today' ? dateKey() : draftDue === 'tomorrow' ? addDays(dateKey(), 1) : draftDue || null;
-    addTask({ title, due, important: draftImportant });
-    input.value = '';
-    draftImportant = false;
-    star.setAttribute('aria-pressed', 'false');
+    const titles = input.value
+      .split('\n')
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)]|\[[ x]\])\s*/i, '').trim())
+      .filter(Boolean);
+    if (!titles.length) return;
+    addTasks(titles.map((title) => ({ title, due: draftDueDate(), important: draftImportant })));
+    if (titles.length > 1) toast(`Added ${plural(titles.length, 'task')}`);
+    clearDraft();
     input.focus();
   });
+
+  $('task-analyse').addEventListener('click', analyse);
   syncPicker();
+  growInput(); // one line tall until there's more to show
+}
+
+function draftDueDate() {
+  if (draftDue === 'today') return dateKey();
+  if (draftDue === 'tomorrow') return addDays(dateKey(), 1);
+  return draftDue || null;
+}
+
+function growInput() {
+  const input = $('task-input');
+  // Empty: the natural one-line height (measuring could catch the placeholder
+  // wrapping before the font has loaded).
+  if (!input.value) {
+    input.style.height = '';
+    return;
+  }
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight + 2, 220)}px`;
+}
+
+function clearDraft() {
+  $('task-input').value = '';
+  growInput();
+  draftImportant = false;
+  $('task-important').setAttribute('aria-pressed', 'false');
+}
+
+// --- Analyse: one paragraph in, separate tasks out --------------------------------
+
+async function analyse() {
+  const input = $('task-input');
+  const text = input.value.trim();
+  if (!text) {
+    toast('Write or paste everything you need to do, then press Analyse.');
+    input.focus();
+    return;
+  }
+  const button = $('task-analyse');
+  button.disabled = true;
+  button.classList.add('is-loading');
+  try {
+    const { tasks: found, method, note } = await splitTasks(text);
+    if (!found.length) {
+      toast('Couldn\'t find separate tasks in that. Try one per sentence or line.');
+      return;
+    }
+    // A due day or star picked in the form applies where the text doesn't say.
+    proposals = found.map((t) => ({ ...t, due: t.due ?? draftDueDate(), important: t.important || draftImportant }));
+    proposalInfo = { method, note };
+    renderProposals();
+  } finally {
+    button.disabled = false;
+    button.classList.remove('is-loading');
+  }
+}
+
+function closeProposals() {
+  proposals = null;
+  renderProposals();
+}
+
+function renderProposals() {
+  const box = $('task-proposals');
+  box.hidden = !proposals;
+  if (!proposals) {
+    box.replaceChildren();
+    return;
+  }
+  const today = dateKey();
+  const head = el('div', 'proposals-head');
+  head.append(
+    el('span', 'proposals-title', { text: `${plural(proposals.length, 'task')} found` }),
+    el('span', 'proposals-method', { text: proposalInfo.method === 'ai' ? 'Split by Chrome\'s on-device AI' : 'Split by sentences and lists' }),
+  );
+  const list = el('ul', 'proposals');
+  list.append(...proposals.map((p, i) => {
+    const li = el('li', 'proposal');
+    const field = el('input', 'field field--small', { type: 'text', 'aria-label': `Task ${i + 1}`, maxlength: 500 });
+    field.value = p.title;
+    field.addEventListener('input', () => { p.title = field.value; });
+    li.append(field);
+    li.append(p.due ? el('span', `due due--${p.due === today ? 'today' : 'later'}`, { text: formatDue(p.due, today) }) : el('span'));
+    const star = el('button', 'task-star', { type: 'button', 'aria-pressed': String(p.important), 'aria-label': 'Important', title: 'Important' });
+    star.append(icon('star', 15));
+    star.addEventListener('click', () => {
+      p.important = !p.important;
+      star.setAttribute('aria-pressed', String(p.important));
+    });
+    const remove = el('button', 'task-btn task-btn--delete', { type: 'button', 'aria-label': `Leave out "${p.title}"`, title: 'Leave out' });
+    remove.append(icon('close', 15));
+    remove.addEventListener('click', () => {
+      proposals.splice(i, 1);
+      if (proposals.length) renderProposals();
+      else closeProposals();
+    });
+    li.append(star, remove);
+    return li;
+  }));
+
+  const actions = el('div', 'proposals-actions');
+  const add = el('button', 'btn btn--primary btn--small', { type: 'button', text: `Add ${plural(proposals.length, 'task')}` });
+  add.addEventListener('click', () => {
+    const ready = proposals.filter((p) => p.title.trim());
+    addTasks(ready);
+    toast(`Added ${plural(ready.length, 'task')}`);
+    clearDraft();
+    closeProposals();
+  });
+  const cancel = el('button', 'btn btn--ghost btn--small', { type: 'button', text: 'Cancel' });
+  cancel.addEventListener('click', closeProposals);
+  actions.append(add, cancel);
+
+  box.replaceChildren(head, list, ...(proposalInfo.note ? [el('p', 'proposals-note', { text: proposalInfo.note })] : []), actions);
 }
 
 // --- Backup ------------------------------------------------------------------------
