@@ -425,6 +425,11 @@ textarea.task-input {
 .icon-btn:disabled { cursor: default; opacity: 0.6; }
 .icon-btn.is-loading svg { animation: pulse 0.9s ease-in-out infinite; }
 
+/* Fix: spelling and grammar of what you typed or dictated. It sits at the end
+   of the row under the to-do box; its icon pulses while the text is checked. */
+.task-fix { margin-left: auto; }
+.fix-button.is-loading svg { animation: pulse 0.9s ease-in-out infinite; }
+
 /* Tasks found by Analyse, to check before adding. */
 .task-proposals {
   display: grid;
@@ -1001,7 +1006,8 @@ textarea.task-input {
   font-weight: 560;
 }
 .learn-tab:hover { border-color: var(--line-strong); color: var(--text); }
-.learn-tab[aria-selected="true"] { border-color: var(--selected-border); background: var(--selected-bg); color: var(--selected-fg); }
+.learn-tab[aria-selected="true"],
+.learn-tab[aria-pressed="true"] { border-color: var(--selected-border); background: var(--selected-bg); color: var(--selected-fg); }
 .learn-tab--topic::before {
   content: '';
   width: 8px;
@@ -1098,16 +1104,27 @@ textarea.task-input {
 .work-status.is-error { color: var(--late); }
 #work-listen[aria-pressed="true"] { color: var(--accent-ink); }
 
-/* The summary: a few short bullets across the full width. */
+/* The summary: a headline, then one line per task, each kept to a single
+   line (the full commit message is in the tooltip). */
 .work-points { display: grid; gap: 6px; margin: 0 0 22px; padding: 0; list-style: none; }
 .work-point {
   position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
   padding-left: 18px;
   color: var(--text);
   font-size: 15.5px;
   line-height: 1.45;
+  white-space: nowrap;
   animation: appear 260ms ease-out both;
 }
+.work-point,
+.work-point-text { overflow: hidden; text-overflow: ellipsis; }
+.work-point-repo { flex: none; color: var(--muted); font-size: 12.5px; }
+.work-point.is-more { color: var(--muted); font-size: 14px; }
+.work-point.is-more::before { background: var(--line-strong); }
 .work-point::before {
   content: '';
   position: absolute;
@@ -1125,41 +1142,73 @@ textarea.task-input {
 .work-points > :nth-child(3) { animation-delay: 80ms; }
 .work-points > :nth-child(n + 4) { animation-delay: 120ms; }
 
-/* Contribution graph: GitHub's green squares, weeks across, days down. */
-.contrib {
-  margin: 0 0 26px;
-  padding: 16px 18px 14px;
+/* Summary and contributions: two compact cards in one row, the same height. */
+.work-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.work-card {
+  min-width: 0;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
   animation: appear 280ms ease-out both;
 }
-.contrib .section-title { margin-bottom: 0; }
-.contrib-stats { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 10px 0 14px; }
-.contrib-stat { display: grid; }
-.contrib-stat-value { font-size: 20px; font-weight: 700; font-stretch: 85%; font-variant-numeric: tabular-nums; }
-.contrib-stat.is-accent .contrib-stat-value { color: var(--done); }
-.contrib-stat-label { color: var(--muted); font-size: 12.5px; }
+.work-card-title { margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 620; }
+.work-top .work-points { margin: 0; }
+@media (max-width: 1180px) {
+  .work-top { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Small figures in one line: "8 commits  3 repos  +226 −60 lines". */
+.mini-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin-bottom: 10px; color: var(--muted); font-size: 13px; }
+.mini-stat b { color: var(--text); font-size: 15px; font-weight: 680; font-variant-numeric: tabular-nums; }
+.mini-stat.is-streak b { color: var(--done); }
+
+/* Today and Yesterday chips, then a calendar for any other day. */
+.work-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.work-date {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.work-date.is-set { border-color: var(--selected-border); background: var(--selected-bg); color: var(--selected-fg); }
+/* Just the calendar icon until a day is picked. */
+.work-date:not(.is-set) { width: 42px; cursor: pointer; }
+.work-date:not(.is-set)::-webkit-datetime-edit { display: none; }
+
+/* Contribution graph: GitHub's green squares, weeks across, days down. */
 .contrib-note { color: var(--muted); font-size: 13px; }
 .contrib-wrap { overflow-x: auto; padding-bottom: 2px; }
 .contrib-grid {
   display: grid;
-  grid-template-columns: 28px repeat(var(--weeks, 53), minmax(9px, 1fr));
-  grid-template-rows: 15px repeat(7, auto);
-  gap: 3px;
-  min-width: 560px;
+  grid-template-columns: 22px repeat(var(--weeks, 53), minmax(5px, 1fr));
+  grid-template-rows: 13px repeat(7, auto);
+  gap: 2px;
 }
-.contrib-day { aspect-ratio: 1; border-radius: 3px; background: var(--contrib-0); }
+.contrib-day { aspect-ratio: 1; border-radius: 2px; background: var(--contrib-0); }
+.contrib-grid .contrib-day[data-date] { cursor: pointer; }
+.contrib-grid .contrib-day[data-date]:hover { outline: 1px solid var(--muted); outline-offset: 1px; }
 .contrib-day.level-1 { background: var(--contrib-1); }
 .contrib-day.level-2 { background: var(--contrib-2); }
 .contrib-day.level-3 { background: var(--contrib-3); }
 .contrib-day.level-4 { background: var(--contrib-4); }
 .contrib-day.is-today { box-shadow: 0 0 0 1.5px var(--accent-ink); }
-.contrib-month { grid-row: 1; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-.contrib-weekday { grid-column: 1; align-self: center; color: var(--muted); font-size: 11px; }
-.contrib-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 8px; color: var(--muted); font-size: 12px; }
-.contrib-legend .contrib-day { width: 11px; height: 11px; }
-.contrib-help { margin-top: 10px; color: var(--muted); font-size: 13.5px; }
+.contrib-month { grid-row: 1; color: var(--muted); font-size: 10.5px; line-height: 13px; white-space: nowrap; }
+.contrib-weekday { grid-column: 1; align-self: center; color: var(--muted); font-size: 10px; line-height: 1; }
+.contrib-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
+.contrib-legend .contrib-day { width: 9px; height: 9px; }
+/* The legend and the "why" link share the card's last line. */
+.contrib { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; }
+.contrib-help { margin-top: 6px; color: var(--muted); font-size: 13px; }
 .contrib-help summary { width: fit-content; cursor: pointer; }
 .contrib-help summary:hover { color: var(--text); }
 .contrib-help p, .contrib-help ul { margin: 8px 0 0; }
@@ -1261,9 +1310,79 @@ textarea.task-input {
 .work-day-name { font-size: 14px; font-weight: 620; }
 .work-day-line { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
 
+/* The project's notes for the day, inside its Work card: a soft tint, so
+   they read as yours and apart from the commits below. */
+.work-repo-numbers .card-action { margin-left: 4px; }
+.work-notes { margin-top: 10px; padding: 2px 12px; border-radius: 10px; background: var(--accent-soft); }
+.work-notes .notes { margin: 0; }
+.work-notes .note { border-top-color: color-mix(in srgb, var(--accent-ink) 20%, transparent); }
+.work-notes .note:first-child { border-top: 0; }
+.work-repo > .work-notes-more { margin: 8px 0 0; }
+
+/* --- Notes ------------------------------------------------------------------------ */
+
+.notes-count { font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.75; }
+
+/* One block per day, newest first; under it, each project with its notes. */
+.notes-days { display: grid; gap: 24px; }
+.notes-day { display: grid; gap: 10px; }
+.notes-day-name { font-size: 19px; font-weight: 680; font-stretch: 88%; }
+.notes-project {
+  padding: 12px 16px 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+/* A project you only pushed to that day: one quiet line. */
+.notes-project.is-quiet { padding-bottom: 12px; }
+.notes-project.is-quiet .notes-project-name { font-size: 15px; font-weight: 620; }
+.notes-project-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.notes-project-head .card-action { margin-left: auto; }
+.notes-project-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 17px;
+  font-weight: 700;
+  font-stretch: 88%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.notes-project-name:not(:disabled):hover { text-decoration: underline; }
+.notes-project-name:disabled { color: inherit; cursor: default; }
+.notes-project-owner { color: var(--muted); font-size: 13px; }
+
+/* A note: the time it was written, the text with its line breaks, then
+   Edit and Delete. */
+.notes { display: grid; margin: 8px 0 0; padding: 0; list-style: none; }
+.note {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.note-time { padding-top: 3px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.note-text { font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-actions { display: flex; margin: -4px -4px 0 0; }
+.note-actions .task-btn { width: 28px; height: 28px; }
+.note-actions > * { opacity: 0.55; }
+.note:hover .note-actions > *,
+.note:focus-within .note-actions > * { opacity: 1; }
+
+/* The note box. */
+.note-form { display: grid; gap: 12px; padding: 20px 22px 22px; }
+.note-form .settings-head h2 { font-size: 21px; font-weight: 700; font-stretch: 88%; }
+.note-form-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+textarea.note-text-field { min-height: 160px; font-size: 15px; line-height: 1.5; }
+.note-form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.note-form-hint { margin-right: auto; color: var(--muted); font-size: 12.5px; }
+
 /* --- Settings ----------------------------------------------------------------- */
 
-.settings {
+.settings,
+.note-dialog {
   width: min(640px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   padding: 0;
@@ -1273,7 +1392,9 @@ textarea.task-input {
   color: var(--text);
   box-shadow: var(--shadow-pop);
 }
-.settings::backdrop { background: var(--backdrop); }
+.note-dialog { width: min(560px, calc(100vw - 32px)); }
+.settings::backdrop,
+.note-dialog::backdrop { background: var(--backdrop); }
 .settings-inner { display: grid; gap: 26px; padding: 22px 24px 28px; }
 .settings-head { display: flex; align-items: center; justify-content: space-between; }
 .settings-head h2 { font-size: 26px; font-weight: 730; font-stretch: 82%; }
@@ -1341,7 +1462,8 @@ label.check-row { display: flex; flex: 1; align-items: center; justify-content: 
 }
 
 @media (max-width: 520px) {
-  .topic-add { grid-template-columns: minmax(0, 1fr); }
+  .topic-add,
+  .note-form-row { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* --- Motion -------------------------------------------------------------------------
@@ -1384,13 +1506,14 @@ label.check-row { display: flex; flex: 1; align-items: center; justify-content: 
 .log-entry,
 .work-history li,
 .trend-repo,
+.notes-day,
 .task.is-entering { animation: appear 280ms ease-out both; }
 .cards > :nth-child(2), .stats > :nth-child(2), .work-repos > :nth-child(2), .master-rows > :nth-child(2),
-.log-list > :nth-child(2), .work-history > :nth-child(2), .trend-repos > :nth-child(2) { animation-delay: 40ms; }
+.log-list > :nth-child(2), .work-history > :nth-child(2), .trend-repos > :nth-child(2), .notes-days > :nth-child(2) { animation-delay: 40ms; }
 .cards > :nth-child(3), .stats > :nth-child(3), .work-repos > :nth-child(3), .master-rows > :nth-child(3),
-.log-list > :nth-child(3), .work-history > :nth-child(3), .trend-repos > :nth-child(3) { animation-delay: 80ms; }
+.log-list > :nth-child(3), .work-history > :nth-child(3), .trend-repos > :nth-child(3), .notes-days > :nth-child(3) { animation-delay: 80ms; }
 .cards > :nth-child(4), .stats > :nth-child(4), .work-repos > :nth-child(4),
-.log-list > :nth-child(4), .work-history > :nth-child(4), .trend-repos > :nth-child(4) { animation-delay: 120ms; }
+.log-list > :nth-child(4), .work-history > :nth-child(4), .trend-repos > :nth-child(4), .notes-days > :nth-child(n + 4) { animation-delay: 120ms; }
 .cards > :nth-child(5), .log-list > :nth-child(5), .work-history > :nth-child(5), .trend-repos > :nth-child(5) { animation-delay: 160ms; }
 .cards > :nth-child(6), .log-list > :nth-child(6), .work-history > :nth-child(6), .trend-repos > :nth-child(6) { animation-delay: 200ms; }
 .cards > :nth-child(n + 7), .log-list > :nth-child(n + 7), .work-history > :nth-child(n + 7), .trend-repos > :nth-child(n + 7) { animation-delay: 240ms; }
@@ -1414,8 +1537,10 @@ label.check-row { display: flex; flex: 1; align-items: center; justify-content: 
 .topic-bar,
 .master-bar::after { transition: width 400ms ease-out; }
 
-.settings[open] { animation: pop 200ms ease-out both; }
-.settings[open]::backdrop { animation: fade 200ms ease-out both; }
+.settings[open],
+.note-dialog[open] { animation: pop 200ms ease-out both; }
+.settings[open]::backdrop,
+.note-dialog[open]::backdrop { animation: fade 200ms ease-out both; }
 /* The toast is centred with a transform, so it keeps that while rising. */
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .toast:not([hidden]) { animation: toast-in 220ms ease-out both; }

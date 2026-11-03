@@ -1,6 +1,7 @@
 // The Work tab: what you pushed to GitHub today, yesterday and on earlier
 // days, with a written summary of each day. The background service worker
-// also writes the day's summary at the time set in Settings.
+// also writes the day's summary at the time set in Settings. Each project
+// has a Note button, and shows the notes you wrote for it that day.
 //
 // Today's commits are checked every 10 minutes while any dashboard tab is
 // open, whichever tab you're on, so matching to-do items get marked done.
@@ -10,6 +11,7 @@ import { buildWorkDays, saveWorkRecords, workMarkdown, cleanSubject, dayLabel } 
 import { completeFromCommits } from './tasks.js';
 import { initContributions, refreshContributions } from './contributions.js';
 import { openSettings } from './settings.js';
+import { notesFor, noteList, addNoteButton, onNotesChange, showNotesFor, projectLabel, projectOwner } from './notes.js';
 import { dateKey, addDays, timeAgo } from './dates.js';
 import { el, toast, plural } from './ui.js';
 
@@ -52,6 +54,10 @@ export async function initWork() {
   $('work-copy').addEventListener('click', copySummary);
   $('work-listen').addEventListener('click', listen);
   $('work-connect-button').addEventListener('click', () => openSettings('github-section'));
+  // Any day: from the calendar, or a click on a square in the contribution graph.
+  $('work-date').addEventListener('change', (e) => { if (e.target.value) showDay(e.target.value); });
+  document.addEventListener('workday:select', (e) => showDay(e.detail));
+  onNotesChange(render);
 
   render();
   initContributions();
@@ -141,22 +147,17 @@ function render() {
   renderDay();
 }
 
-// Today, yesterday, then earlier days that have a summary.
-function dayList() {
+// Today and Yesterday as chips; any other day comes from the calendar beside them.
+function renderDays() {
   const today = dateKey();
   const days = [today, addDays(today, -1)];
-  for (const r of records) if (!days.includes(r.id) && days.length < 7) days.push(r.id);
-  if (!days.includes(view)) days.push(view);
-  return days;
-}
-
-function renderDays() {
-  const days = dayList();
+  const picker = $('work-date');
+  picker.max = today;
+  picker.value = days.includes(view) ? '' : view;
+  picker.classList.toggle('is-set', !days.includes(view));
   const buttons = days.map((day) => {
-    const label = dayLabel(day);
-    const short = label === 'Today' || label === 'Yesterday' ? label : new Date(`${day}T00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
     const selected = day === view;
-    const button = el('button', 'learn-tab', { type: 'button', role: 'tab', 'aria-selected': String(selected), tabindex: selected ? '0' : '-1', text: short });
+    const button = el('button', 'learn-tab', { type: 'button', role: 'tab', 'aria-selected': String(selected), tabindex: selected ? '0' : '-1', text: dayLabel(day) });
     button.addEventListener('click', () => showDay(day));
     return button;
   });
@@ -170,9 +171,29 @@ function renderDays() {
 }
 
 function showDay(day) {
+  if (!day || day > dateKey()) return;
   view = day;
   globalThis.speechSynthesis?.cancel();
   render();
+  // A past day without a summary (or one written before the day ended) is built now.
+  const record = records.find((r) => r.id === day);
+  if (!record || (!record.final && day < dateKey()) || !record.done) loadDay(day);
+}
+
+async function loadDay(day) {
+  if (!auth?.token || loading) return;
+  loading = true;
+  error = null;
+  render();
+  try {
+    const fresh = await buildWorkDays(auth.token, auth.login, [day]);
+    records = await saveWorkRecords(fresh, markDirty);
+  } catch (e) {
+    error = e.message;
+  } finally {
+    loading = false;
+    render();
+  }
 }
 
 function renderDay() {
@@ -190,34 +211,64 @@ function renderDay() {
   $('work-status').title = record && auth?.login ? `From @${auth.login}` : '';
   $('work-status').classList.toggle('is-error', Boolean(error) && !loading);
 
+  // Projects you wrote notes for on this day but didn't push to get a card too.
+  const pushed = new Set((record?.repos || []).map((r) => r.name));
+  const notesOnly = [...new Set(notesFor({ day: view }).map((n) => n.project))].filter((p) => !pushed.has(p));
+
   if (!record) {
     $('work-points').replaceChildren(el('li', 'work-point is-plain', { text: loading ? 'Looking at what you pushed…' : 'There\'s no summary for this day.' }));
     $('work-stats').replaceChildren();
-    $('work-repos').replaceChildren();
+    $('work-repos').replaceChildren(...notesOnly.map(renderNotesOnly));
     $('work-prs-section').hidden = true;
     return;
   }
 
-  // The first bullet is the headline; nothing pushed reads as a plain line.
-  const quiet = !record.points?.length;
-  $('work-points').replaceChildren(...pointsOf(record).map((point, i) => el('li', `work-point${quiet ? ' is-plain' : ''}${i === 0 && !quiet ? ' is-lead' : ''}`, { text: point })));
+  // The figures sit at the top of the summary, small; the bullets are the tasks.
   const { stats } = record;
   const prCount = stats.opened + stats.merged + stats.reviewed;
-  const statItems = [
-    [stats.commits, stats.commits === 1 ? 'Commit' : 'Commits'],
-    [stats.repos, stats.repos === 1 ? 'Repo' : 'Repos'],
-    [`+${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)}`, 'Lines changed'],
-    [prCount, prCount === 1 ? 'Pull request' : 'Pull requests'],
-  ];
-  $('work-stats').replaceChildren(...statItems.map(([value, label]) => {
-    const stat = el('div', 'stat');
-    stat.append(el('span', 'stat-value', { text: value }), el('span', 'stat-label', { text: label }));
-    return stat;
-  }));
+  $('work-stats').replaceChildren(
+    miniStat(numberFormat.format(stats.commits), stats.commits === 1 ? 'commit' : 'commits'),
+    miniStat(numberFormat.format(stats.repos), stats.repos === 1 ? 'repo' : 'repos'),
+    miniStat(`+${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)}`, 'lines'),
+    miniStat(numberFormat.format(prCount), prCount === 1 ? 'pull request' : 'pull requests'),
+  );
+  renderPoints(record);
 
-  $('work-repos').replaceChildren(...record.repos.map(renderRepo));
+  $('work-repos').replaceChildren(...record.repos.map(renderRepo), ...notesOnly.map(renderNotesOnly));
   $('work-prs-section').hidden = !record.prs.length;
   $('work-prs').replaceChildren(...record.prs.map(renderPullRequest));
+}
+
+function miniStat(value, label) {
+  const stat = el('span', 'mini-stat');
+  stat.append(el('b', '', { text: value }), document.createTextNode(` ${label}`));
+  return stat;
+}
+
+// One line per task done, each on a single line. With more than one repo,
+// each task shows its repo; hovering shows the commit.
+function renderPoints(record) {
+  const list = $('work-points');
+  if (!record.done) {
+    // A day saved before tasks were listed: its summary lines as they were.
+    const quiet = !record.points?.length;
+    list.replaceChildren(...pointsOf(record).map((point, i) => el('li', `work-point${quiet ? ' is-plain' : ''}${i === 0 && !quiet ? ' is-lead' : ''}`, { text: point, title: point })));
+    return;
+  }
+  if (!record.overview) {
+    list.replaceChildren(el('li', 'work-point is-plain', { text: record.summary }));
+    return;
+  }
+  const tagged = record.stats.repos > 1;
+  const lines = [];
+  for (const task of record.done) {
+    const li = el('li', 'work-point', { title: task.message });
+    li.append(el('span', 'work-point-text', { text: task.text }));
+    if (tagged) li.append(el('span', 'work-point-repo', { text: task.repo }));
+    lines.push(li);
+  }
+  if (record.moreCommits) lines.push(el('li', 'work-point is-more', { text: `And ${plural(record.moreCommits, 'more commit')}, listed below` }));
+  list.replaceChildren(...lines);
 }
 
 function lineCounts(additions, deletions) {
@@ -232,7 +283,7 @@ function renderRepo(repo) {
   const title = el('div', 'work-repo-title');
   title.append(el('a', 'work-repo-name', { href: repo.url, text: repo.repo }), el('span', 'work-repo-owner', { text: repo.owner }));
   const numbers = el('div', 'work-repo-numbers');
-  numbers.append(el('span', '', { text: plural(repo.count, 'commit') }), lineCounts(repo.additions, repo.deletions));
+  numbers.append(el('span', '', { text: plural(repo.count, 'commit') }), lineCounts(repo.additions, repo.deletions), addNoteButton(repo.name, view));
   head.append(title, numbers);
   section.append(head);
 
@@ -240,6 +291,7 @@ function renderRepo(repo) {
   repo.branches.forEach((branch) => meta.append(el('span', 'work-branch', { text: branch, title: 'Branch' })));
   if (repo.areas.length) meta.append(el('span', 'work-areas', { text: `Mostly in ${listFormat.format(repo.areas)}` }));
   if (meta.childElementCount) section.append(meta);
+  section.append(...projectNotes(repo.name));
 
   const showAll = expanded.has(repo.name);
   const list = el('ol', 'work-commits');
@@ -264,7 +316,40 @@ function renderRepo(repo) {
   return section;
 }
 
-const PR_LABELS = { opened: 'Opened', merged: 'Merged', reviewed: 'Reviewed', closed: 'Closed', reopened: 'Reopened' };
+// A project with notes on this day but nothing pushed.
+function renderNotesOnly(project) {
+  const section = el('section', 'work-repo');
+  const head = el('div', 'work-repo-head');
+  const title = el('div', 'work-repo-title');
+  const owner = projectOwner(project);
+  title.append(el('a', 'work-repo-name', { href: owner ? `https://github.com/${project}` : null, text: projectLabel(project) }));
+  if (owner) title.append(el('span', 'work-repo-owner', { text: owner }));
+  const numbers = el('div', 'work-repo-numbers');
+  numbers.append(el('span', '', { text: 'No commits' }), addNoteButton(project, view));
+  head.append(title, numbers);
+  section.append(head, ...projectNotes(project));
+  return section;
+}
+
+// The project's notes for the day on screen, then a link to its other notes.
+function projectNotes(project) {
+  const parts = [];
+  const onDay = notesFor({ project, day: view });
+  if (onDay.length) {
+    const box = el('div', 'work-notes');
+    box.append(noteList(onDay));
+    parts.push(box);
+  }
+  const others = notesFor({ project }).length - onDay.length;
+  if (others) {
+    const link = el('button', 'link-button work-notes-more', { type: 'button', text: `${plural(others, 'note')} on other days` });
+    link.addEventListener('click', () => showNotesFor(project));
+    parts.push(link);
+  }
+  return parts;
+}
+
+const PR_LABELS ={ opened: 'Opened', merged: 'Merged', reviewed: 'Reviewed', closed: 'Closed', reopened: 'Reopened' };
 
 function renderPullRequest(pr) {
   const li = el('li', 'work-pr');

@@ -8,6 +8,7 @@ import { load, save, watch, stableJson } from './store.js';
 import { markDirty } from './sync.js';
 import { dayLabel } from './github.js';
 import { splitTasks } from './tasksplit.js';
+import { fixFields } from './fixtext.js';
 import { dateKey, addDays, formatDue } from './dates.js';
 import { el, icon, safeUrl, toast, plural } from './ui.js';
 
@@ -421,6 +422,9 @@ function renderEditor(task, li) {
   due.addEventListener('change', () => update(task.id, { due: due.value || null }));
   const clearDue = el('button', 'link-button', { type: 'button', text: 'No date' });
   clearDue.addEventListener('click', () => update(task.id, { due: null }));
+  const fix = el('button', 'btn btn--ghost btn--small fix-button', { type: 'button', title: 'Fix spelling and grammar in the title and notes' });
+  fix.append(icon('fix', 15), el('span', '', { text: 'Fix' }));
+  fix.addEventListener('click', () => fixFields([{ field: titleInput, kind: 'task' }, { field: notes, kind: 'note' }], fix));
   const cancelButton = el('button', 'btn btn--ghost btn--small', { type: 'button', text: 'Cancel' });
   cancelButton.addEventListener('click', cancel);
   const saveButton = el('button', 'btn btn--primary btn--small', { type: 'button', text: 'Save' });
@@ -429,7 +433,7 @@ function renderEditor(task, li) {
   buttons.append(cancelButton, saveButton);
   row.append(due);
   if (task.due) row.append(clearDue);
-  row.append(buttons);
+  row.append(fix, buttons);
 
   // Changes are saved as you type; Save closes the editor, Cancel undoes them.
   box.addEventListener('keydown', (event) => {
@@ -495,6 +499,8 @@ function bindForm() {
   });
 
   $('task-analyse').addEventListener('click', analyse);
+  // Fix: spelling and grammar of what you typed or dictated, before you add it.
+  $('task-fix').addEventListener('click', () => fixFields([{ field: input, kind: 'task' }], $('task-fix')));
   syncPicker();
   growInput(); // one line tall until there's more to show
 }

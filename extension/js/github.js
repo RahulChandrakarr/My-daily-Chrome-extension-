@@ -57,9 +57,13 @@ export async function verifyToken(token) {
   return { login: user.login, name: user.name || user.login };
 }
 
-// One work record per day ('YYYY-MM-DD', local time).
+// One work record per day ('YYYY-MM-DD', local time). Works for older days too:
+// only pushes from those days (and two days after, for commits pushed late)
+// are expanded.
 export async function buildWorkDays(token, login, days) {
-  const from = parseKey([...days].sort()[0]).getTime();
+  const sorted = [...days].sort();
+  const from = parseKey(sorted[0]).getTime();
+  const until = parseKey(addDays(sorted.at(-1), 3)).getTime();
   // A rejected token should stop everything; other failures just mean less to go on.
   const softly = (promise) => promise.catch((error) => {
     if (error.status === 401) throw error;
@@ -69,9 +73,10 @@ export async function buildWorkDays(token, login, days) {
     softly(eventsSince(token, login, from)),
     softly(recentPushes(token, login, from)),
   ]);
+  const pushes = mergePushes(activity, events).filter((p) => p.at < until);
   const [commits, prs] = await Promise.all([
-    commitsFromPushes(token, login, mergePushes(activity, events), from),
-    pullRequests(token, events),
+    commitsFromPushes(token, login, pushes, from),
+    pullRequests(token, events.filter((e) => Date.parse(e.created_at) < until)),
   ]);
   return days.map((day) => {
     const start = parseKey(day).getTime();
@@ -112,7 +117,8 @@ async function recentPushes(token, login, from) {
     ? '/user/repos?sort=pushed&per_page=30&affiliation=owner,collaborator,organization_member'
     : `/users/${encodeURIComponent(login)}/repos?sort=pushed&per_page=30`);
   const active = repos.filter((r) => Date.parse(r.pushed_at) >= from).slice(0, 15);
-  const period = Date.now() - from > 6 * 24 * 60 * 60 * 1000 ? 'month' : 'week';
+  const age = (Date.now() - from) / (24 * 60 * 60 * 1000);
+  const period = age <= 6 ? 'week' : age <= 29 ? 'month' : age <= 89 ? 'quarter' : 'year';
   const logs = await mapLimit(active, 4, (repo) => gh(token, `/repos/${repo.full_name}/activity?actor=${encodeURIComponent(login)}&time_period=${period}&per_page=100`).catch(() => []));
   return active.flatMap((repo, i) => logs[i]
     .filter((a) => ['push', 'force_push', 'branch_creation'].includes(a.activity_type) && Date.parse(a.timestamp) >= from)
@@ -277,12 +283,16 @@ export function summarizeDay(day, commits, prs) {
     reviewed: prs.filter((p) => p.action === 'reviewed').length,
   };
   const now = Date.now();
+  const done = doneTasks(own);
   const record = {
     id: day,
     stats,
     repos,
     prs,
-    highlights: highlights(own),
+    overview: overviewLine(stats, repos),
+    done: done.slice(0, MAX_TASKS),
+    moreCommits: Math.max(done.length - MAX_TASKS, 0),
+    highlights: done.slice(0, 3).map((t) => t.text),
     generatedAt: now,
     final: now >= parseKey(addDays(day, 1)).getTime(), // written after the day ended
     updatedAt: now,
@@ -337,14 +347,69 @@ export function cleanSubject(message) {
   return subject.charAt(0).toUpperCase() + subject.slice(1);
 }
 
-// The commits that changed the most, as plain subjects.
-function highlights(own) {
+// --- What you did, one short line per commit ------------------------------------------
+
+const MAX_TASKS = 5;
+const MAX_TASK_LENGTH = 64;
+const TRIVIAL = /^(?:wip|updates?|changes?|fix(?:es)?|minor|misc|tweaks?|cleanup|typo|refactor)\.?$|^merged? (?:branch|pull request|remote-tracking)/i;
+
+// Leading verbs in commit messages, and how they read once done.
+const PAST = {
+  add: 'added', adjust: 'adjusted', align: 'aligned', allow: 'allowed', animate: 'animated', block: 'blocked',
+  build: 'built', bump: 'bumped', change: 'changed', check: 'checked', clean: 'cleaned', close: 'closed',
+  connect: 'connected', convert: 'converted', correct: 'corrected', create: 'created', delete: 'deleted',
+  deploy: 'deployed', disable: 'disabled', display: 'displayed', document: 'documented', drop: 'dropped',
+  edit: 'edited', enable: 'enabled', extract: 'extracted', finish: 'finished', fix: 'fixed', handle: 'handled',
+  hide: 'hid', implement: 'implemented', improve: 'improved', integrate: 'integrated', introduce: 'introduced',
+  keep: 'kept', link: 'linked', list: 'listed', load: 'loaded', make: 'made', merge: 'merged', migrate: 'migrated',
+  move: 'moved', open: 'opened', optimise: 'optimised', optimize: 'optimized', polish: 'polished', prevent: 'prevented',
+  redesign: 'redesigned', refactor: 'refactored', release: 'released', remove: 'removed', rename: 'renamed',
+  render: 'rendered', replace: 'replaced', restore: 'restored', return: 'returned', revert: 'reverted', rewrite: 'rewrote',
+  save: 'saved', send: 'sent', set: 'set', ship: 'shipped', show: 'showed', simplify: 'simplified', speed: 'sped',
+  split: 'split', start: 'started', stop: 'stopped', support: 'supported', switch: 'switched', sync: 'synced',
+  test: 'tested', tidy: 'tidied', update: 'updated', upgrade: 'upgraded', upload: 'uploaded', use: 'used',
+  validate: 'validated', wrap: 'wrapped', write: 'wrote',
+};
+
+function pastTense(text) {
+  const [first, ...rest] = text.split(' ');
+  const done = PAST[first.toLowerCase()];
+  if (!done) return text;
+  return [first[0] === first[0].toUpperCase() ? capitalise(done) : done, ...rest].join(' ');
+}
+
+// One line saying what a commit did, in the past tense:
+//   "feat(leads): add lead scoring endpoint"            -> "Added lead scoring endpoint"
+//   "Tidy the project root: unused files removed, …"    -> "Tidied the project root"
+//   "fix: refresh token before expiry"                  -> "Fixed: Refresh token before expiry"
+export function taskLine(message) {
+  const subject = message.split('\n')[0];
+  const type = subject.match(/^(\w+)(?:\([^)]*\))?!?:\s/)?.[1]?.toLowerCase();
+  let text = cleanSubject(subject)
+    .replace(/\s*\([^()]*\b\d{4}\)\s*$/, '') // "(Rahul, 24 Oct 2026)"
+    .replace(/\s*\(#\d+\)\s*$/, '') // "(#42)"
+    .replace(/[.\s]+$/, '');
+  // A heading before a colon is the task when it says enough on its own
+  // ("Tidy the project root: …"); a short one keeps the start of its detail
+  // ("Creative Studio: AIVA makes finished ads …").
+  const [head, ...rest] = text.split(/:\s/);
+  const detail = (s) => s.split(/;\s|\s[—–]\s|,\s+(?:and|with|so|but)\s/)[0];
+  text = head.length >= 20 || !rest.length ? detail(head) : `${head}: ${detail(rest.join(': '))}`;
+  if (text.length > MAX_TASK_LENGTH) {
+    text = `${text.slice(0, MAX_TASK_LENGTH).replace(/\s+\S*$/, '').replace(/[\s,;:–—-]+$/, '')}…`;
+  }
+  const firstWord = text.split(' ')[0].toLowerCase();
+  if (type === 'fix' && firstWord !== 'fix') return `Fixed: ${text}`;
+  return pastTense(text);
+}
+
+// Each of the day's commits as a task, biggest change first, repeats left out.
+function doneTasks(own) {
   const seen = new Set();
   return [...own]
     .sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions))
-    .map((c) => cleanSubject(c.message))
-    .filter((s) => s && !/^(wip|update|updates|changes|fix|fixes|minor)\.?$/i.test(s) && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()))
-    .slice(0, 3);
+    .map((c) => ({ text: taskLine(c.message), repo: c.repo.split('/')[1], message: c.message.split('\n')[0] }))
+    .filter(({ text }) => text && !TRIVIAL.test(text) && !seen.has(text.toLowerCase()) && seen.add(text.toLowerCase()));
 }
 
 export function dayLabel(day) {
@@ -356,39 +421,31 @@ export function dayLabel(day) {
 
 const capitalise = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-// The day in a few short bullets, in active voice: how much, where, then
-// what (the biggest commits).
-//   2 commits in WBT_CHQ, +192 −11 lines
-//   Merged 1 pull request
-//   On feature/lead-scoring, in app/api and lib/leads
-//   Add lead scoring endpoint
-function summaryPoints({ stats, repos, prs, highlights: biggest }) {
-  if (!stats.commits && !stats.merges && !prs.length) return [];
-  const points = [];
+// The headline: how much, where, and any pull requests, in one line.
+//   "3 commits across 2 repos, +226 −60 lines, merged 1 pull request"
+function overviewLine(stats, repos) {
+  const parts = [];
   if (stats.commits) {
     const where = stats.repos > 1 ? `across ${stats.repos} repos` : `in ${repos[0].repo}`;
-    const lines = stats.additions || stats.deletions
-      ? `, +${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)} lines`
-      : '';
-    points.push(`${plural(stats.commits, 'commit')} ${where}${lines}`);
+    parts.push(`${plural(stats.commits, 'commit')} ${where}`);
+    if (stats.additions || stats.deletions) parts.push(`+${numberFormat.format(stats.additions)} −${numberFormat.format(stats.deletions)} lines`);
   }
-  const reviewWork = [['Merged', stats.merged], ['Opened', stats.opened], ['Reviewed', stats.reviewed]]
+  [['merged', stats.merged], ['opened', stats.opened], ['reviewed', stats.reviewed]]
     .filter(([, n]) => n)
-    .map(([verb, n], i) => (i === 0 ? `${verb} ${plural(n, 'pull request')}` : `${verb.toLowerCase()} ${n}`));
-  if (reviewWork.length) points.push(listFormat.format(reviewWork));
+    .forEach(([verb, n], i) => parts.push(i === 0 ? `${verb} ${plural(n, 'pull request')}` : `${verb} ${n}`));
+  return parts.length ? capitalise(parts.join(', ')) : '';
+}
 
-  const lead = repos[0];
-  if (lead) {
-    const branch = lead.branches.length === 1 ? `on ${lead.branches[0]}` : lead.branches.length > 1 ? `across ${lead.branches.length} branches` : '';
-    const areas = lead.areas.length ? `in ${listFormat.format(lead.areas.slice(0, 3))}` : '';
-    const where = [repos.length > 1 ? `Mostly ${lead.repo}` : '', branch, areas].filter(Boolean).join(', ');
-    if (where) points.push(capitalise(where));
-    if (repos.length > 1) {
-      const others = repos.slice(1, 4).map((r) => `${r.repo} (${plural(r.count, 'commit')})`);
-      points.push(`Also ${listFormat.format(others)}${repos.length > 4 ? ` and ${repos.length - 4} more` : ''}`);
-    }
-  }
-  return [...points, ...biggest].slice(0, 6);
+// The summary as plain lines: the headline, then one line per task. Used for
+// copying, reading aloud and the notification.
+function summaryPoints({ overview, done, moreCommits, stats }) {
+  if (!overview) return [];
+  const tag = stats.repos > 1;
+  return [
+    overview,
+    ...done.map((t) => (tag ? `${t.text} (${t.repo})` : t.text)),
+    ...(moreCommits ? [`And ${plural(moreCommits, 'more commit')}`] : []),
+  ];
 }
 
 // One line for the notification, the work history and the to-do Done section.
@@ -398,7 +455,7 @@ function shortSummary(day, record) {
     return label === 'Today' ? 'Nothing pushed to GitHub yet today.' : `Nothing pushed to GitHub ${label === 'Yesterday' ? 'yesterday' : `on ${label}`}.`;
   }
   const [first, second] = record.points;
-  return `${label}: ${first}${second ? `; ${second.charAt(0).toLowerCase()}${second.slice(1)}` : ''}.`;
+  return `${label}: ${first}.${second ? ` ${second.replace(/[.…]$/, '')}.` : ''}`;
 }
 
 // The day as short Markdown bullets, for pasting into a standup or a chat.

@@ -1,5 +1,5 @@
 // Starts the dashboard: header, tabs, search and keyboard shortcuts, then the
-// to-do list, the AI news tab and the learning tab.
+// to-do list and the AI news, Learning, Work and Notes tabs.
 import { load, save, watch } from './store.js';
 import { initSync, markDirty } from './sync.js';
 import { loadPreviews } from './preview.js';
@@ -9,6 +9,7 @@ import { initLearning, updateLearningTopics, refreshLearning, setLearningVisible
 import { cachedStack, ensureStack } from './stack.js';
 import { initSettings } from './settings.js';
 import { initWork, setWorkVisible } from './work.js';
+import { initNotes, renderNotes } from './notes.js';
 import { initTrending } from './trending.js';
 import { dateKey } from './dates.js';
 import { plural } from './ui.js';
@@ -46,6 +47,7 @@ async function main() {
   const stack = await cachedStack();
   initFeed(settings, stack);
   initLearning(settings, stack);
+  await initNotes(); // before Work, whose project cards show their notes
   initWork();
   initTrending();
 
@@ -129,6 +131,7 @@ function tick() {
   renderTasks();
   renderTaskSummary();
   refreshLearning();
+  renderNotes();
 }
 
 // --- Tabs, search, shortcuts ------------------------------------------------------
@@ -155,6 +158,11 @@ async function initTabs() {
       const step = event.key === 'ArrowRight' ? 1 : -1;
       select(tabs[(i + step + tabs.length) % tabs.length], true);
     });
+  });
+  // Other tabs can send you here, e.g. from a project's notes to that day in Work.
+  document.addEventListener('tab:select', (event) => {
+    const tab = $(`tab-${event.detail}`);
+    if (tab) select(tab);
   });
   select($(await load('activeTab', 'tab-news')) || tabs[0]);
 }

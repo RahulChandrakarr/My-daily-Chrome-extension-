@@ -49,6 +49,18 @@ const TABLES = {
     toRow: (d, userId) => ({ user_id: userId, day: d.id, data: d, updated_at: iso(d.updatedAt) }),
     fromRow: (r) => ({ ...r.data, id: r.day, updatedAt: ms(r.updated_at) }),
   },
+  work_notes: {
+    localKey: 'workNotes',
+    conflict: 'id',
+    toRow: (n, userId) => ({
+      id: n.id, user_id: userId, project: n.project, day: n.day, text: n.text,
+      created_at: iso(n.createdAt), updated_at: iso(n.updatedAt), deleted: Boolean(n.deleted),
+    }),
+    fromRow: (r) => ({
+      id: r.id, project: r.project, day: r.day, text: r.text,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), deleted: r.deleted,
+    }),
+  },
   preferences: {
     localKey: 'settings',
     single: true,
@@ -62,6 +74,9 @@ let state = { configured: false, signedIn: false, email: null, syncing: false, l
 let syncing = null;
 let pushTimer = null;
 let dirtyChain = Promise.resolve();
+// Tables Supabase doesn't have yet (schema.sql was run before they were added).
+// The rest still sync, and their changes wait until the table exists.
+const missing = new Set();
 const listeners = new Set();
 
 export const getSyncState = () => state;
@@ -212,11 +227,15 @@ export function syncNow({ pullToo = true } = {}) {
   setState({ syncing: true });
   syncing = (async () => {
     try {
+      missing.clear();
       await push();
       if (pullToo) await pull();
       const lastSyncedAt = Date.now();
       await save('syncStatus', { lastSyncedAt });
-      setState({ lastSyncedAt, error: null });
+      setState({
+        lastSyncedAt,
+        error: missing.size ? `Run supabase/schema.sql again in your Supabase project. It adds the ${[...missing].join(' and ')} table, so that data can sync too.` : null,
+      });
     } catch (error) {
       setState({ error: navigator.onLine ? error.message : 'Offline. Changes will sync when you reconnect.' });
     } finally {
@@ -239,11 +258,17 @@ async function push() {
     const local = await load(def.localKey, def.single ? null : []);
     const records = def.single ? (local ? [local] : []) : local.filter((x) => ids.includes(x.id));
     if (records.length) {
-      await api(`/rest/v1/${table}?on_conflict=${def.conflict}`, {
-        method: 'POST',
-        body: records.map((r) => def.toRow(r, session.user.id)),
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      });
+      try {
+        await api(`/rest/v1/${table}?on_conflict=${def.conflict}`, {
+          method: 'POST',
+          body: records.map((r) => def.toRow(r, session.user.id)),
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        });
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        missing.add(table); // its marks stay, so it's pushed once the table exists
+        continue;
+      }
     }
     // Clear only what was marked before this push; edits made meanwhile go next time.
     dirtyChain = dirtyChain.then(async () => {
@@ -258,8 +283,16 @@ async function push() {
 async function pull() {
   const cursors = await load(CURSOR_KEY, {});
   for (const [table, def] of Object.entries(TABLES)) {
+    if (missing.has(table)) continue;
     const since = cursors[table] ? `&synced_at=gt.${encodeURIComponent(cursors[table])}` : '';
-    const rows = await api(`/rest/v1/${table}?select=*${since}&order=synced_at.asc&limit=1000`);
+    let rows;
+    try {
+      rows = await api(`/rest/v1/${table}?select=*${since}&order=synced_at.asc&limit=1000`);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      missing.add(table);
+      continue;
+    }
     if (!rows?.length) continue;
     const remote = rows.map(def.fromRow);
     if (def.single) {

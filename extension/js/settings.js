@@ -7,6 +7,7 @@ import { allTopics, customTopic } from './topics.js';
 import { getConfig, saveConfig, signIn, signUp, signOut, syncNow, getSyncState, onSyncChange } from './sync.js';
 import { visibleTasks, replaceTasks, normalizeImported } from './tasks.js';
 import { exportLearningLog, importLearningLog } from './learning.js';
+import { exportNotes, importNotes } from './notes.js';
 import { dateKey, timeAgo } from './dates.js';
 import { el, icon, toast, plural } from './ui.js';
 
@@ -168,6 +169,7 @@ async function exportData() {
     exportedAt: new Date().toISOString(),
     tasks: visibleTasks(),
     learningLog: await exportLearningLog(),
+    workNotes: exportNotes(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const link = el('a', '', { href: URL.createObjectURL(blob), download: `my-daily-backup-${dateKey()}.json` });
@@ -183,12 +185,15 @@ async function importData(event) {
     const parsed = JSON.parse(await file.text());
     const tasks = normalizeImported(Array.isArray(parsed) ? parsed : parsed.tasks || []);
     const log = Array.isArray(parsed.learningLog) ? parsed.learningLog : [];
-    if (!tasks.length && !log.length) throw new Error('empty');
+    const notes = Array.isArray(parsed.workNotes) ? parsed.workNotes : [];
+    if (!tasks.length && !log.length && !notes.length) throw new Error('empty');
     const current = visibleTasks().length;
     if (tasks.length && !confirm(`Replace your ${plural(current, 'task')} with the ${plural(tasks.length, 'task')} in this file?`)) return;
     if (tasks.length) replaceTasks(tasks);
     if (log.length) importLearningLog(log);
-    toast(`Imported ${plural(tasks.length, 'task')} and ${plural(log.length, 'learning log entry', 'learning log entries')}`);
+    // Notes are merged, never replaced: a note you wrote since the backup stays.
+    const merged = notes.length ? importNotes(notes) : 0;
+    toast(`Imported ${plural(tasks.length, 'task')}, ${plural(log.length, 'learning log entry', 'learning log entries')} and ${plural(merged, 'note')}`);
   } catch {
     toast('That file isn\'t a My Daily backup. Choose a file made with Export.');
   }

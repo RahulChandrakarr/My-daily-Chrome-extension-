@@ -23,6 +23,7 @@ const ICONS = {
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   notes: 'M5 7h14M5 12h14M5 17h9',
   refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2',
+  fix: 'M4 7h11M4 12h7M4 17h5M13.5 16.5l2.5 2.5 4.5-5',
 };
 
 export function icon(name, size = 18) {

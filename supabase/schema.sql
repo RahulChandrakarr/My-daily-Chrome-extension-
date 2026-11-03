@@ -1,4 +1,4 @@
--- My Daily: tables that sync your to-do list, learning log, work log and settings.
+-- My Daily: tables that sync your to-do list, learning log, work log, notes and settings.
 --
 -- Run once in your Supabase project:
 --   Dashboard → SQL Editor → New query → paste this file → Run.
@@ -54,9 +54,22 @@ create table if not exists public.work_log (
   primary key (user_id, day)
 );
 
+create table if not exists public.work_notes (
+  id          uuid primary key,
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  project     text not null,                        -- a repo like wbt-web-support/tbs, or a name you typed
+  day         date not null,                        -- the day the note is about
+  text        text not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false,
+  synced_at   timestamptz not null default now()
+);
+
 create index if not exists tasks_user_synced on public.tasks (user_id, synced_at);
 create index if not exists work_log_user_synced on public.work_log (user_id, synced_at);
 create index if not exists learning_log_user_synced on public.learning_log (user_id, synced_at);
+create index if not exists work_notes_user_synced on public.work_notes (user_id, synced_at);
 
 -- Runs before every write:
 --   * keeps the newest edit: an update older than what's stored is skipped,
@@ -93,10 +106,19 @@ drop trigger if exists touch_synced_at on public.preferences;
 create trigger touch_synced_at before insert or update on public.preferences
   for each row execute function public.touch_synced_at();
 
+drop trigger if exists touch_synced_at on public.work_notes;
+create trigger touch_synced_at before insert or update on public.work_notes
+  for each row execute function public.touch_synced_at();
+
 alter table public.tasks enable row level security;
 alter table public.learning_log enable row level security;
 alter table public.preferences enable row level security;
 alter table public.work_log enable row level security;
+alter table public.work_notes enable row level security;
+
+drop policy if exists "Own rows" on public.work_notes;
+create policy "Own rows" on public.work_notes for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 drop policy if exists "Own rows" on public.work_log;
 create policy "Own rows" on public.work_log for all to authenticated

@@ -1,6 +1,6 @@
 # My Daily
 
-A Chrome extension that turns every new tab into your daily dashboard. The left column holds your to-do list, the open tab's log (Learning log or Work history) and GitHub Trending. The rest of the width is for AI news, Learning or Work.
+A Chrome extension that turns every new tab into your daily dashboard. The left column holds your to-do list, the open tab's log (Learning log or Work history) and GitHub Trending. The rest of the width is for AI news, Learning, Work or Notes.
 
 - **To-do list**: tasks with due dates (overdue, today, upcoming, anytime), an important star, notes and links. The toolbar icon's badge shows how many are due. Write out everything you need to do in one go and **Analyse** splits it into separate tasks. With GitHub connected, a task is marked done when you push a commit that matches it, and the Done section shows, day by day, what you pushed and what you finished.
 - **Trending on GitHub**: the list from github.com/trending, with the stars each repo gained today, this week or this month, filtered by language if you like. GitHub has no API for this page, so the extension reads the page itself, at most once an hour.
@@ -14,8 +14,9 @@ A Chrome extension that turns every new tab into your daily dashboard. The left 
   - **One tab per interest**: its top videos, trending stories and articles to study.
   - **All topics**: every topic, including all the skills on your resume, with how much of each you've covered.
   - Every item has a "Read it" (or "Watched it") and "Tried it" checkbox. These feed your streak, weekly counts and learning log.
-- **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a few short bullets on what you worked on and where, and a daily summary is written automatically at a time you choose. Your GitHub contribution graph (the green squares from your profile) sits below, with your current and longest streak.
-- **Supabase sync** (optional): tasks, learning log, work history and settings are saved locally first, so everything is instant, then synced to your own Supabase project.
+- **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a few short bullets on what you worked on and where, and a daily summary is written automatically at a time you choose. Your GitHub contribution graph (the green squares from your profile) sits below, with your current and longest streak. Each project has a **Note** button, and its card shows the notes you wrote for it that day.
+- **Notes**: write down what you did on a project, what's left and what you're waiting on (say, a permission a client still has to give), so it isn't only in your head. Each note belongs to a project and a day, and keeps the time you wrote it. The Notes tab lists each day, newest first, with the projects you pushed to and the notes under each one. Pick a project to see only its notes.
+- **Supabase sync** (optional): tasks, learning log, work history, notes and settings are saved locally first, so everything is instant, then synced to your own Supabase project.
 
 It runs only in your Chrome. Nothing goes through the Chrome Web Store.
 
@@ -38,10 +39,11 @@ The extension loads straight from `extension/`, so keep that folder where it is.
 
 | Where | What you can do |
 | --- | --- |
-| To-do | Type a task and press Enter (Shift+Enter starts a new line; the box grows). **+** adds it, and a pasted list becomes one task per line. **✦ Analyse** reads a whole paragraph ("I have to call Priya, then fix the login bug and send the invoice tomorrow, it's urgent…") and proposes separate tasks, with due days and stars picked up from the words. Check them, edit or leave any out, then add them all. Pick Today, Tomorrow, No date or a date first for tasks that don't say. Click a task to edit its title, notes or date, or to delete it (with undo). |
+| To-do | Type a task and press Enter (Shift+Enter starts a new line; the box grows). **+** adds it, and a pasted list becomes one task per line. **✦ Analyse** reads a whole paragraph ("I have to call Priya, then fix the login bug and send the invoice tomorrow, it's urgent…") and proposes separate tasks, with due days and stars picked up from the words. Check them, edit or leave any out, then add them all. Pick Today, Tomorrow, No date or a date first for tasks that don't say. **Fix** (the lines-and-tick icon at the end of the row under the box) corrects the spelling and grammar of what you typed or dictated, before you add it. Click a task to edit its title, notes or date, or to delete it (with undo); **Fix** in the editor corrects its title and notes. |
 | AI news | Switch between Your stack, Headlines, News, AI labs, Hacker News, Papers and Models. **To-do** on a card adds the story to your list. News refreshes every 15 minutes while a tab is open. |
 | Learning | Switch between Your stack, Suggested, Today, your interests and All topics. **Scan again** re-checks GitHub for your tools (it does so on its own twice a day). Tick **Read it**, **Watched it** or **Tried it** on anything. **Different picks** swaps today's lessons. In All topics, pick a topic to see its best articles. A topic counts as covered after 5 articles. |
-| Work | Switch between Today, Yesterday and earlier days. **Listen** reads the summary aloud, **Copy summary** copies it as Markdown bullets for a standup or a chat, and **Refresh** checks GitHub again (it also does that every 10 minutes while the tab is open). Hover a square in the contribution graph for that day's count. |
+| Work | Pick Today, Yesterday or any date with the calendar, or click a square in the contribution graph to open that day. The summary card shows the day's figures and one line per task, beside your contribution graph and streak. **Listen** reads the summary aloud, **Copy summary** copies it as Markdown bullets for a standup or a chat, and **Refresh** checks GitHub again (it also does that every 10 minutes while the tab is open). **Note** on a project adds a note for that project on the day you're looking at. |
+| Notes | **New note** asks for a project (pick one of your repos or type any name, like "Lead serve"), a day (today unless you change it) and what to write. **Fix writing** corrects its spelling and grammar, and **⌘ Enter** saves. Click a project's name or chip to see only its notes, and a commit count to open that day in Work. Each note has Edit and Delete (with undo). |
 | Settings (top right) | Your name, light or dark, Supabase sync, GitHub and the time of the daily summary, learning topics (turn off, or add your own), news sources, and backup or restore. |
 
 Keyboard: `/` jumps to search, `n` jumps to the new-task box.
@@ -49,7 +51,7 @@ Keyboard: `/` jumps to search, `n` jumps to the new-task box.
 ## Syncing with Supabase
 
 1. Create a project at [supabase.com](https://supabase.com), or use one you already have.
-2. Open **SQL Editor → New query**, paste [supabase/schema.sql](supabase/schema.sql) and click **Run**. It creates four tables (`tasks`, `learning_log`, `work_log`, `preferences`) with row-level security, so each signed-in user can only reach their own rows. It's safe to run again.
+2. Open **SQL Editor → New query**, paste [supabase/schema.sql](supabase/schema.sql) and click **Run**. It creates five tables (`tasks`, `learning_log`, `work_log`, `work_notes`, `preferences`) with row-level security, so each signed-in user can only reach their own rows. It's safe to run again, and if you set up sync before notes were added, run it again to add `work_notes`. Until then, Settings tells you, and everything else keeps syncing.
 3. In **Project Settings → API Keys**, copy the project URL and the **publishable** key (`sb_publishable_…`, or the legacy `anon` key). Never use the secret or `service_role` key here.
 4. On the dashboard, open **Settings → Sync with Supabase**, paste both and click **Save project**.
 5. Click **Create account** with an email and password, then **Sign in**. If your project requires email confirmation, click the link Supabase emails you first. To skip confirmation, turn off **Confirm email** under Authentication → Sign In / Providers → Email.
@@ -66,6 +68,8 @@ Once signed in, changes upload about a second after you make them. Changes from 
 **Your stack** comes from the repos you pushed to in the last two weeks: their languages, `package.json` dependencies and telltale files (`supabase/`, `Dockerfile`, `vercel.json`…). Repos you pushed to recently, and committed to most, count for more. The list of tools it recognises, and where to follow each one, is in [extension/js/stack.js](extension/js/stack.js).
 
 **How Analyse splits your text:** when your Chrome has its built-in on-device AI (Gemini Nano, through Chrome's Prompt API), that does the splitting. It's free and private, and nothing leaves your computer. The first time, Chrome may need to download the model, and until it's ready a rule-based splitter is used. That splitter handles lists, sentences, "then", "also" and "and <verb>", strips openers like "I have to", reads "today", "tomorrow" and "by Friday" as due days, and reads "urgent" or "ASAP" as important. The preview says which one was used.
+
+**How Fix corrects your writing:** the same on-device AI fixes spelling, grammar, punctuation and words dictation misheard, keeping your wording, names and line breaks (through Chrome's Proofreader API when your Chrome has it, otherwise the Prompt API). Nothing leaves your computer. Without it, rules fix capitals, "i", missing apostrophes ("dont"), doubled words ("the the"), common misspellings and tool names ("next js" → Next.js, "super base" → Supabase), and the message says grammar wasn't checked. Fix changes the text in the box, so you can read it before adding; **Undo** in the message, or ⌘Z in the box, puts back what you wrote.
 
 **To-do items done by commits:**
 - **What matches:** a commit matches an open task when it shares at least two of the task's keywords, covering 60% or more of them. Generic words like "fix", "add" and "update" don't count, so "Fix login redirect" is matched by "fix: login redirect loop" but not by "fix: signup redirect".
@@ -90,7 +94,7 @@ How the Work tab finds your commits:
 
 ## Where your data lives
 
-Without Supabase, everything is in this Chrome profile's extension storage. Removing the extension deletes it, so use **Settings → Export backup** now and then. The backup is a JSON file with your tasks and learning log; **Import backup** restores it.
+Without Supabase, everything is in this Chrome profile's extension storage. Removing the extension deletes it, so use **Settings → Export backup** now and then. The backup is a JSON file with your tasks, learning log and notes; **Import backup** restores it (notes are merged with the ones you have, never replaced).
 
 The extension contacts only the news and learning sources listed above, dev.to (for learning articles), the article pages it reads preview images from, GitHub's API if you connect it, and your Supabase project if you set one up.
 
@@ -133,6 +137,7 @@ my-daily/
         ├── app.js           start-up, header, tabs, search, shortcuts
         ├── tasks.js         to-do list
         ├── tasksplit.js     Analyse: splits a paragraph into tasks
+        ├── fixtext.js       Fix: spelling and grammar of what you typed or dictated
         ├── feed.js          AI news tab
         ├── news.js          fetching and parsing feeds, Hacker News, Hugging Face
         ├── learning.js      Learning sub-tabs, daily brief, Read it / Tried it, stats, log
@@ -142,6 +147,7 @@ my-daily/
         ├── cards.js         the story card shared by both tabs
         ├── preview.js       Open Graph preview images (ported from uptime)
         ├── work.js          Work tab
+        ├── notes.js         Notes tab, the note box and the notes on Work's project cards
         ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
         ├── stack.js         your stack: tools found in your repos, and news about them

@@ -123,20 +123,27 @@ function render() {
     return;
   }
   section.hidden = false;
-  const { current, longest, today, activeDays } = streaks(calendar.days);
-  const stat = (value, label, accent = false) => {
-    const node = el('div', accent ? 'contrib-stat is-accent' : 'contrib-stat');
-    node.append(el('span', 'contrib-stat-value', { text: value }), el('span', 'contrib-stat-label', { text: label }));
+  const { current, longest, today } = streaks(calendar.days);
+  // Small figures in one line, like the summary's; the streak in green while it lasts.
+  const stat = (value, label, className = '') => {
+    const node = el('span', `mini-stat ${className}`.trim());
+    node.append(el('b', '', { text: value }), document.createTextNode(` ${label}`));
     return node;
   };
   $('contrib-stats').replaceChildren(
-    stat(plural(current, 'day'), current ? 'Current streak' : 'No streak yet. Push today to start one', current > 0),
-    stat(plural(longest, 'day'), 'Longest streak'),
-    stat(numberFormat.format(today), today === 1 ? 'Contribution today' : 'Contributions today'),
-    stat(numberFormat.format(calendar.total), `In the last year, on ${plural(activeDays, 'day')}`),
+    stat(plural(current, 'day'), 'streak', current ? 'is-streak' : ''),
+    stat(plural(longest, 'day'), 'longest'),
+    stat(numberFormat.format(today), 'today'),
+    stat(numberFormat.format(calendar.total), 'this year'),
   );
   $('contrib-graph').replaceChildren(renderGraph(calendar.days));
 }
+
+// A click on a square opens that day in the Work tab.
+document.addEventListener('click', (event) => {
+  const cell = event.target.closest?.('.contrib-grid .contrib-day[data-date]');
+  if (cell) document.dispatchEvent(new CustomEvent('workday:select', { detail: cell.dataset.date }));
+});
 
 const WEEKDAY_LABELS = { 1: 'Mon', 3: 'Wed', 5: 'Fri' };
 
@@ -171,7 +178,8 @@ function renderGraph(days) {
   days.forEach((d, i) => {
     const date = parseKey(d.date);
     const cell = el('span', `contrib-day level-${d.level}${d.date === today ? ' is-today' : ''}`, {
-      title: `${d.count ? plural(d.count, 'contribution') : 'No contributions'} on ${date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`,
+      'data-date': d.date <= today ? d.date : null,
+      title: `${d.count ? plural(d.count, 'contribution') : 'No contributions'} on ${date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}. Click to open that day.`,
     });
     cell.style.gridColumn = `${Math.floor((i + offset) / 7) + 2}`;
     cell.style.gridRow = `${date.getDay() + 2}`;
