@@ -1,7 +1,8 @@
 // The Settings dialog: your name, theme, news sources, learning topics,
 // backups, and the Supabase and GitHub connections.
-import { load, save } from './store.js';
+import { load, save, watch } from './store.js';
 import { verifyToken } from './github.js';
+import { keepStreak, parseRepo, setupStreakRepo, STREAK_STATE_KEY, STREAK_DEFAULT_TIME } from './streak.js';
 import { ALL_SOURCES } from './sources.js';
 import { allTopics, customTopic } from './topics.js';
 import { getConfig, saveConfig, signIn, signUp, signOut, syncNow, getSyncState, onSyncChange } from './sync.js';
@@ -9,7 +10,7 @@ import { visibleTasks, replaceTasks, normalizeImported } from './tasks.js';
 import { exportLearningLog, importLearningLog } from './learning.js';
 import { exportNotes, importNotes } from './notes.js';
 import { dateKey, timeAgo } from './dates.js';
-import { el, icon, toast, plural } from './ui.js';
+import { el, icon, toast, plural, safeUrl } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 let getSettings;
@@ -67,6 +68,14 @@ export function initSettings(hooks) {
   $('work-summary-time').addEventListener('change', (e) => updateSettings({ workSummaryTime: e.target.value || '18:00' }));
   $('work-notify').addEventListener('change', (e) => updateSettings({ workNotify: e.target.checked }));
   $('auto-done').addEventListener('change', (e) => updateSettings({ autoDone: e.target.checked }));
+  $('streak-keep').addEventListener('change', (e) => setStreak(e.target.checked));
+  $('streak-time').addEventListener('change', (e) => {
+    updateSettings({ streakTime: e.target.value || STREAK_DEFAULT_TIME });
+    renderStreakState();
+  });
+  $('streak-repo').addEventListener('change', () => setStreak($('streak-keep').checked));
+  $('streak-check').addEventListener('click', checkStreakNow);
+  watch(STREAK_STATE_KEY, () => renderStreakState());
 
   $('sync-now').addEventListener('click', () => syncNow());
   $('sign-out').addEventListener('click', async () => {
@@ -93,6 +102,11 @@ async function fill() {
   $('work-notify').checked = settings.workNotify !== false;
   $('auto-done').checked = settings.autoDone !== false;
   await renderGitHubState();
+  const auth = await load('githubAuth', null);
+  $('streak-keep').checked = settings.streakKeep === true;
+  $('streak-time').value = settings.streakTime || STREAK_DEFAULT_TIME;
+  $('streak-repo').value = settings.streakRepo || (auth?.login ? parseRepo('', auth.login) : '');
+  await renderStreakState();
   document.querySelectorAll('input[name="theme"]').forEach((radio) => { radio.checked = radio.value === settings.theme; });
   renderSourceSettings();
   renderTopicSettings();
@@ -227,6 +241,101 @@ async function renderGitHubState() {
     : 'Not connected. Connect to track the commits and pull requests you push each day.';
   $('github-connect').hidden = Boolean(auth?.token);
   $('github-connected').hidden = !auth?.token;
+}
+
+// --- Keep my streak ------------------------------------------------------------------
+
+// Turning it on (or changing the repo while it's on) finds the repo, or
+// creates it as a private one, before anything is saved.
+async function setStreak(on) {
+  const box = $('streak-keep');
+  const input = $('streak-repo');
+  const auth = await load('githubAuth', null);
+  if (!auth?.token) {
+    box.checked = false;
+    toast('Connect GitHub first, then turn this on.');
+    return;
+  }
+  const fullName = parseRepo(input.value, auth.login);
+  if (!fullName) {
+    toast('That isn\'t a repo name. Use a name like daily-log.');
+    if (on) box.checked = false;
+    return;
+  }
+  if (!on) {
+    updateSettings({ streakKeep: false, streakRepo: fullName });
+    input.value = fullName;
+    renderStreakState();
+    return;
+  }
+  box.disabled = true;
+  try {
+    const repo = await setupStreakRepo(auth, fullName);
+    input.value = repo.fullName;
+    updateSettings({ streakKeep: true, streakRepo: repo.fullName });
+    toast(repo.created
+      ? `Created the private repo ${repo.fullName}. Days you don't push get their log committed there.`
+      : `Days you don't push get their log committed to ${repo.fullName}${repo.private ? '' : ', without your to-do titles because it\'s public'}.`);
+  } catch (error) {
+    box.checked = false;
+    updateSettings({ streakKeep: false });
+    toast(error.message);
+  } finally {
+    box.disabled = false;
+    renderStreakState();
+  }
+}
+
+// Checks right away instead of waiting for the set time. It still commits
+// only when GitHub shows no contribution today.
+async function checkStreakNow() {
+  if (!getSettings().streakKeep) {
+    toast('Turn on "Keep my streak" first.');
+    return;
+  }
+  const button = $('streak-check');
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  try {
+    const state = await keepStreak({ force: true });
+    if (state.status === 'committed') toast(`Committed today's log to ${state.repo}: "${state.message}"`);
+    else if (state.status === 'contributed') toast(`You have ${plural(state.count, 'contribution')} on GitHub today, so there's nothing to commit.`);
+    else if (state.status === 'error') toast(state.error);
+    else toast('Connect GitHub and turn on "Keep my streak" first.');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Check now';
+    renderStreakState();
+  }
+}
+
+async function renderStreakState() {
+  const settings = getSettings();
+  const node = $('streak-status');
+  $('streak-section').dataset.on = String(settings.streakKeep === true);
+  node.classList.remove('is-error');
+  const [auth, state] = await Promise.all([load('githubAuth', null), load(STREAK_STATE_KEY, null)]);
+  if (!auth?.token) {
+    node.textContent = 'Connect GitHub above to use this.';
+    return;
+  }
+  if (!settings.streakKeep) {
+    node.textContent = '';
+    return;
+  }
+  const time = settings.streakTime || STREAK_DEFAULT_TIME;
+  if (state?.date !== dateKey()) {
+    node.textContent = `Today: it checks at ${time}.`;
+  } else if (state.status === 'contributed') {
+    node.textContent = `Today: you have ${plural(state.count, 'contribution')} on GitHub, so there's nothing to commit.`;
+  } else if (state.status === 'committed') {
+    const at = new Date(state.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const link = el('a', '', { href: safeUrl(state.url), target: '_blank', rel: 'noopener', text: 'View the commit' });
+    node.replaceChildren(`Today: nothing else was on GitHub, so the day's log was committed at ${at}. `, link);
+  } else {
+    node.classList.add('is-error');
+    node.textContent = `Today's check didn't work: ${state.error} It tries again in a few minutes.`;
+  }
 }
 
 // --- Supabase -----------------------------------------------------------------------

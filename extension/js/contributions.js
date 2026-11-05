@@ -6,20 +6,10 @@ import { load, save, watch } from './store.js';
 import { fetchThroughBackground } from './net.js';
 import { dateKey, addDays, parseKey } from './dates.js';
 import { el, inertHtml, plural } from './ui.js';
+import { contributionDays } from './github.js';
 
 const CACHE_KEY = 'contribCalendar';
 const STALE = 30 * 60 * 1000;
-const LEVELS = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
-const QUERY = `query($login: String!) {
-  user(login: $login) {
-    contributionsCollection {
-      contributionCalendar {
-        totalContributions
-        weeks { contributionDays { date contributionCount contributionLevel } }
-      }
-    }
-  }
-}`;
 const $ = (id) => document.getElementById(id);
 const numberFormat = new Intl.NumberFormat();
 
@@ -40,7 +30,7 @@ export async function refreshContributions({ force = false } = {}) {
   render();
   try {
     const days = auth.token
-      ? await fromGraphQL(auth).catch(() => fromProfilePage(auth.login))
+      ? await contributionDays(auth.token, auth.login).catch(() => fromProfilePage(auth.login))
       : await fromProfilePage(auth.login);
     calendar = { login: auth.login, fetchedAt: Date.now(), days, total: days.reduce((n, d) => n + d.count, 0) };
     await save(CACHE_KEY, calendar);
@@ -50,24 +40,6 @@ export async function refreshContributions({ force = false } = {}) {
     loading = false;
     render();
   }
-}
-
-async function fromGraphQL({ token, login }) {
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: QUERY, variables: { login } }),
-    credentials: 'omit',
-  });
-  if (!res.ok) throw new Error(`GitHub returned ${res.status}`);
-  const { data } = await res.json();
-  const weeks = data?.user?.contributionsCollection?.contributionCalendar?.weeks;
-  if (!weeks) throw new Error('No contribution calendar');
-  return weeks.flatMap((w) => w.contributionDays).map((d) => ({
-    date: d.date,
-    count: d.contributionCount,
-    level: LEVELS[d.contributionLevel] ?? 0,
-  }));
 }
 
 // The same graph from your public profile page, for when there's no token.

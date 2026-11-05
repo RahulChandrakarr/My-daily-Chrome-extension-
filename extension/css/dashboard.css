@@ -1410,6 +1410,12 @@ textarea.note-text-field { min-height: 160px; font-size: 15px; line-height: 1.5;
 .setting-help a { color: inherit; text-underline-offset: 3px; }
 .setting-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
 .field--time { width: auto; min-height: 36px; padding: 4px 10px; }
+.field--repo { width: min(220px, 100%); min-height: 36px; padding: 4px 10px; }
+.streak-setting { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.streak-setting .setting-inline { padding-left: 24px; }
+.streak-setting[data-on="false"] .setting-inline { opacity: 0.6; }
+#streak-status a { color: var(--text); }
+#streak-status.is-error { color: var(--late); }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 14px; }
 .check-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 14px; }
 .check-row label,

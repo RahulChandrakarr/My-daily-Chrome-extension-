@@ -32,13 +32,16 @@ export class GitHubError extends Error {
   }
 }
 
-async function gh(token, path) {
+async function gh(token, path, { method = 'GET', body } = {}) {
   const res = await fetch(`${API}${path}`, {
+    method,
     headers: {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
+    body: body ? JSON.stringify(body) : undefined,
     credentials: 'omit',
     cache: 'no-store',
   });
@@ -51,10 +54,44 @@ async function gh(token, path) {
 }
 
 export const githubGet = gh;
+export const githubSend = (token, method, path, body) => gh(token, path, { method, body });
 
 export async function verifyToken(token) {
   const user = await gh(token, '/user');
   return { login: user.login, name: user.name || user.login };
+}
+
+// Your contribution graph, one entry per day for the last year:
+// [{ date: 'YYYY-MM-DD', count, level 0-4 }]. GitHub decides what counts.
+const LEVELS = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
+const CALENDAR_QUERY = `query($login: String!) {
+  user(login: $login) {
+    contributionsCollection {
+      contributionCalendar {
+        totalContributions
+        weeks { contributionDays { date contributionCount contributionLevel } }
+      }
+    }
+  }
+}`;
+
+export async function contributionDays(token, login) {
+  const res = await fetch(`${API}/graphql`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: CALENDAR_QUERY, variables: { login } }),
+    credentials: 'omit',
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new GitHubError(`GitHub returned ${res.status}`, res.status);
+  const { data } = await res.json();
+  const weeks = data?.user?.contributionsCollection?.contributionCalendar?.weeks;
+  if (!weeks) throw new GitHubError('GitHub sent no contribution calendar');
+  return weeks.flatMap((w) => w.contributionDays).map((d) => ({
+    date: d.date,
+    count: d.contributionCount,
+    level: LEVELS[d.contributionLevel] ?? 0,
+  }));
 }
 
 // One work record per day ('YYYY-MM-DD', local time). Works for older days too:

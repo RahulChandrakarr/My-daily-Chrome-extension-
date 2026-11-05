@@ -375,6 +375,18 @@
         <label class="setting-inline" for="work-summary-time">Write the day's summary at <input id="work-summary-time" class="field field--time" type="time"></label>
         <label class="check-row"><input id="work-notify" type="checkbox"><span>Show it as a notification</span></label>
         <label class="check-row"><input id="auto-done" type="checkbox"><span>Mark to-do items done when a commit I push matches them</span></label>
+        <div class="streak-setting" id="streak-section">
+          <label class="check-row"><input id="streak-keep" type="checkbox"><span>Keep my streak on days I don't push</span></label>
+          <div class="setting-inline">
+            <label for="streak-time">If GitHub shows nothing for today at</label>
+            <input id="streak-time" class="field field--time" type="time">
+            <label for="streak-repo">commit the day's log to</label>
+            <input id="streak-repo" class="field field--repo" type="text" placeholder="you/daily-log" autocomplete="off" spellcheck="false">
+            <button id="streak-check" class="btn btn--ghost" type="button">Check now</button>
+          </div>
+          <p class="setting-help">The log is one Markdown file per day: the to-dos you finished and what you read or tried, and the commit message says what's in it. The repo has to be yours, not an organisation's, and it's created as a private repo if it doesn't exist. In a public repo the log leaves out your to-do titles. Chrome has to be open; if it was closed at that time, the check runs when you open it, until midnight. Commits to a private repo show on your graph only with "Include private contributions" on in your GitHub profile settings.</p>
+          <p class="setting-help" id="streak-status" aria-live="polite"></p>
+        </div>
       </section>
 
       <section class="setting">

@@ -15,6 +15,7 @@ A Chrome extension that turns every new tab into your daily dashboard. The left 
   - **All topics**: every topic, including all the skills on your resume, with how much of each you've covered.
   - Every item has a "Read it" (or "Watched it") and "Tried it" checkbox. These feed your streak, weekly counts and learning log.
 - **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a few short bullets on what you worked on and where, and a daily summary is written automatically at a time you choose. Your GitHub contribution graph (the green squares from your profile) sits below, with your current and longest streak. Each project has a **Note** button, and its card shows the notes you wrote for it that day.
+- **Keep my streak** (optional, connect GitHub): on a day you don't push, it commits the day's log to a private repo of yours in the evening, so your contribution graph doesn't skip that day. The log lists the to-dos you finished and what you read or tried, and the commit message says what's in it.
 - **Notes**: write down what you did on a project, what's left and what you're waiting on (say, a permission a client still has to give), so it isn't only in your head. Each note belongs to a project and a day, and keeps the time you wrote it. The Notes tab lists each day, newest first, with the projects you pushed to and the notes under each one. Pick a project to see only its notes.
 - **Supabase sync** (optional): tasks, learning log, work history, notes and settings are saved locally first, so everything is instant, then synced to your own Supabase project.
 
@@ -64,6 +65,14 @@ Once signed in, changes upload about a second after you make them. Changes from 
 2. If a work organisation uses single sign-on, click **Configure SSO** next to the token and authorise it for that organisation.
 3. On the dashboard, open **Settings → GitHub**, paste the token and click **Connect**. The Work tab fills in right away.
 4. Pick when the daily summary is written (6:00 PM by default), and whether it also appears as a notification. Clicking the notification opens that day in the Work tab.
+5. To keep your streak, tick **Keep my streak on days I don't push**, and pick the time and repo (10:00 PM and `daily-log` by default).
+
+**How Keep my streak works:**
+- **The check:** from the time you set, the extension asks GitHub how many contributions you have today. Any contribution counts (a push, a pull request, a review), because that's what keeps a square green. If there's at least one, nothing happens.
+- **The commit:** if there are none, it commits `YYYY/YYYY-MM-DD.md` to your log repo, with a message like `Daily log for Thu 5 Nov: 3 to-dos done, 2 read`. You get a notification, and clicking it opens the commit. It commits at most once a day, and **Check now** in Settings runs the check right away.
+- **The repo:** it has to be yours, not an organisation's, so client and work repos are never touched. If it doesn't exist, it's created as a private repo when you turn this on. In a public repo the log leaves out your to-do titles.
+- **Private repos:** commits to them show on your public graph only with "Include private contributions" on in your GitHub profile settings.
+- **Chrome has to be open:** if it was closed at the set time, the check runs when you open it, as long as it's still the same day.
 
 **Your stack** comes from the repos you pushed to in the last two weeks: their languages, `package.json` dependencies and telltale files (`supabase/`, `Dockerfile`, `vercel.json`…). Repos you pushed to recently, and committed to most, count for more. The list of tools it recognises, and where to follow each one, is in [extension/js/stack.js](extension/js/stack.js).
 
@@ -129,7 +138,7 @@ my-daily/
 └── extension/               the folder Chrome loads
     ├── manifest.json
     ├── dashboard.html       the new tab page
-    ├── background.js        toolbar badge, end-of-day work summary, fetches feeds and pages
+    ├── background.js        toolbar badge, end-of-day work summary, streak check, fetches feeds and pages
     ├── css/dashboard.css
     ├── fonts/               Bricolage Grotesque (SIL Open Font License)
     ├── icons/
@@ -150,6 +159,7 @@ my-daily/
         ├── notes.js         Notes tab, the note box and the notes on Work's project cards
         ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
+        ├── streak.js        Keep my streak: the evening check and the day's log commit
         ├── stack.js         your stack: tools found in your repos, and news about them
         ├── trending.js      Trending on GitHub (reads github.com/trending)
         ├── sync.js          Supabase sign-in, push and pull
