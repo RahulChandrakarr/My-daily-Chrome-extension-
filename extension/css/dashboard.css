@@ -1736,6 +1736,10 @@ body[data-tab="work"] .work-card:not(.q-card) { border-top: 3px solid var(--hue-
 .q-profile-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .q-profile-group b { min-width: 112px; color: var(--muted); font-size: 12.5px; font-weight: 650; }
 .q-profile-group .chip { font-size: 13px; padding: 4px 11px; }
+.q-section-heading { margin-top: 8px; font-size: 19px; font-weight: 700; font-stretch: 88%; letter-spacing: -0.01em; }
+.q-project-about { display: grid; gap: 6px; margin-bottom: 12px; }
+.q-level.is-open { outline: 2px solid var(--area, var(--line-strong)); outline-offset: 1px; }
+.q-level-heading { margin: 14px 0 8px; font-size: 14px; font-weight: 650; }
 .q-add-skill { display: inline-flex; gap: 6px; margin-left: auto; }
 .q-add-skill .field { width: 180px; min-height: 34px; padding: 4px 12px; border-radius: 999px; font-size: 13.5px; }
 .q-levels-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }

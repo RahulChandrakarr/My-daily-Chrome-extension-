@@ -26,6 +26,7 @@ import { streaks } from './contributions.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
 import { initPractice, renderPractice, puzzleStats, commStats, practiceNotes, practiceDays, practiceLevelsPassed, exportPractice } from './practice.js';
+import { initProjects, renderProjects, projectItemOpen, projectStats, projectDays, exportProjects } from './projects.js';
 import { explainChoice, renderLesson } from './teach.js';
 import { el, icon, toast, plural } from './ui.js';
 
@@ -69,6 +70,7 @@ export async function initQuestions() {
   view = await load('questionsView', 'daily');
   if (view === 'report' || view === 'feedback') view = 'profile'; // merged into Profile
   await initPractice({ rerender: render });
+  await initProjects({ rerender: render, projects: () => resume?.projects || [] });
   // What the rest of My Daily knows about your work, for the profile's work summary.
   const WORK_KEYS = { workLog: 'log', contribCalendar: 'calendar', workStack: 'stack', workNotes: 'notes', tasks: 'tasks', learningLog: 'learning' };
   await Promise.all(Object.entries(WORK_KEYS).map(async ([key, field]) => {
@@ -93,8 +95,13 @@ export function setQuestionsVisible(visible) {
   if (visible) render();
 }
 
+// Always in the mix, whatever the resume says: interviews today ask how you
+// build with LLMs (which model, saving tokens, caching, RAG, agents, evals).
+const AI_TOPIC = { id: 'ai-engineering', name: 'AI engineering (building with LLMs)', group: 'AI', builtin: true };
+
 function topics() {
-  return resume?.topics?.length ? resume.topics : DEFAULT_TOPICS.filter((t) => t.kind === 'resume').map((t) => ({ id: t.id, name: t.name, group: 'Skills' }));
+  const list = resume?.topics?.length ? resume.topics : DEFAULT_TOPICS.filter((t) => t.kind === 'resume').map((t) => ({ id: t.id, name: t.name, group: 'Skills' }));
+  return list.some((t) => t.id === AI_TOPIC.id || /\bLLM|AI engineering|building with (LLMs|AI)/i.test(t.name)) ? list : [...list, AI_TOPIC];
 }
 
 function topicName(id) {
@@ -228,6 +235,9 @@ function dailyTopics() {
   const picked = Array.from({ length: perDay }, (_, i) => all[(start + i) % all.length]);
   const weak = topicStats(30).filter((t) => t.total >= 3 && t.accuracy < PASS_MARK).slice(0, 2);
   weak.forEach((w) => { if (!picked.some((p) => p.id === w.id)) picked.push({ id: w.id, name: w.name }); });
+  // AI engineering comes up every day: it's what interviews ask about most now.
+  const ai = all.find((t) => t.id === AI_TOPIC.id) || all.find((t) => /\bLLM|AI engineering/i.test(t.name));
+  if (ai && !picked.some((p) => p.id === ai.id)) picked.push(ai);
   return picked;
 }
 
@@ -250,6 +260,10 @@ function passedLevels(topicId) {
 
 function renderLevels() {
   const wrap = el('div', 'q-stack');
+  if (projectItemOpen()) {
+    wrap.append(renderProjects());
+    return wrap;
+  }
   const all = topics();
   levelTopic = all.find((t) => t.id === levelTopic)?.id || all[0]?.id || null;
 
@@ -310,6 +324,8 @@ function renderLevels() {
       + `${LEVEL_START} levels are open to start; from the ${ordinal(LEVEL_UNLOCK_AFTER)} level you pass, every level you pass opens one more.${busy ? ' Writing the level\'s questions…' : ''}`,
   }));
   wrap.append(node);
+  wrap.append(el('h3', 'q-section-heading', { text: 'Your projects' }));
+  wrap.append(renderProjects());
   return wrap;
 }
 
@@ -430,7 +446,9 @@ async function writeQuestions({ count, topics: list, kind, level = null, difficu
     + 'Each question is multiple choice with 4 or 5 options. Make wrong options plausible, not silly. '
     + 'Ask about things that come up in real interviews: how it works, why, what happens if, which is better and when, and reading short code. '
     + 'Keep code snippets short and put them in the question text. Never repeat a question from the list of earlier questions, and vary the wording and angle. '
-    + 'Write in plain English.';
+    + 'Write in plain English. '
+    + 'For the AI engineering topic, ask what interviewers ask developers who build with LLMs today: choosing a model for a job and why, saving tokens and cost, prompt caching, context window management, '
+    + 'structured outputs, tool calling and agents, RAG and embeddings, evals, latency and streaming, rate limits and retries, prompt injection and safety, when not to use an LLM.';
   const prompt = `Write exactly ${count} questions.\n\n`
     + (resume?.summary ? `About the person (ask some questions about the kind of work and tools on their resume, as an interviewer who read it would):\n${resume.summary}\n\n` : '')
     + `Topics (use the id in the topic field, spread the questions across them${list.length > 1 ? ', at least one per topic' : ''}):\n${list.map((t) => `- ${t.id}: ${t.name}`).join('\n')}\n\n`
@@ -749,7 +767,7 @@ function renderHero() {
     ['Days practised', String(days.size), ''],
     ['Questions answered', String(answered), ''],
     ['Accuracy', answered ? `${percent(right, answered)}%` : '–', 'all-time'],
-    ['Levels passed', String(quizLevelsPassed() + practiceLevelsPassed()), ''],
+    ['Levels passed', String(quizLevelsPassed() + practiceLevelsPassed() + projectStats(3650).levelsPassed), ''],
   ].forEach(([label, value, unit]) => {
     const cell = el('div', 'pf-figure');
     const big = el('p', 'pf-figure-value');
@@ -1013,6 +1031,7 @@ function quizLevelsPassed() {
 // Every day with a finished quiz or a puzzle or communication attempt.
 function practiceDaysAll() {
   const days = practiceDays();
+  projectDays().forEach((d) => days.add(d));
   sessions.filter((s) => s.finishedAt).forEach((s) => days.add(s.day));
   return days;
 }
@@ -1106,7 +1125,8 @@ async function writeFeedback() {
       + `Accuracy by topic over 30 days (weakest first):\n${stats.map((t) => `- ${t.name}: ${Math.round(t.accuracy * 100)}% of ${t.total}`).join('\n') || '- nothing answered yet'}\n`
       + `Questions missed this week:\n${recentWrong.map((t) => `- ${t}`).join('\n') || '- none'}\n`
       + `Levels passed: ${Object.values(levels).filter((v) => v && typeof v === 'object').flatMap((v) => Object.values(v)).filter((l) => l?.best && l.best.correct / l.best.total >= PASS_MARK).length}.\n`
-      + practiceNotes();
+      + practiceNotes()
+      + (projectStats(7).attempts ? `\nProject questions this week: ${projectStats(7).attempts} answered, average ${projectStats(7).average}/100.` : '');
     const instructions = 'You coach a full-stack developer preparing for job interviews: technical knowledge, problem solving and professional communication in English. Be direct and specific, no flattery. '
       + 'Name 2-4 things to work on (a topic, problem-solving habit or communication habit), each with one concrete thing to do today. '
       + 'Then name 2-4 technologies, tools or practices worth learning next, picked for this person: things that are new or growing in their field, or gaps next to what they already use. Say why in one line.';
@@ -1147,11 +1167,26 @@ function feedbackByRules(stats, week) {
 const RESUME_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'title', 'summary', 'topics'],
+  required: ['name', 'title', 'summary', 'topics', 'projects'],
   properties: {
     name: { type: 'string', description: 'the person\'s name as written on the resume' },
     title: { type: 'string', description: 'their job title in two to four words, e.g. "Full-stack developer"' },
     summary: { type: 'string', description: 'five to eight lines on their experience: years, roles, the main projects and what each was built with, so an interviewer could ask about their actual work' },
+    projects: {
+      type: 'array',
+      description: 'every project or product on the resume, work or personal, that an interviewer could ask about',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'summary', 'role', 'stack'],
+        properties: {
+          name: { type: 'string' },
+          summary: { type: 'string', description: 'what it is and does, two to four lines, from the resume' },
+          role: { type: 'string', description: 'what the person did on it; empty if the resume does not say' },
+          stack: { type: 'array', items: { type: 'string' }, description: 'the technologies named for it' },
+        },
+      },
+    },
     topics: {
       type: 'array',
       items: {
@@ -1261,6 +1296,13 @@ async function readResume(event, { again = false } = {}) {
       name: data.name || pdf?.name || 'your resume',
       title: String(data.title || '').trim(),
       summary: String(data.summary || '').trim(),
+      projects: (data.projects || []).filter((p) => p?.name && p.summary).map((p) => ({
+        id: slug(p.name),
+        name: String(p.name).trim(),
+        summary: String(p.summary).trim(),
+        role: String(p.role || '').trim(),
+        stack: (p.stack || []).map(String).filter(Boolean),
+      })),
       topics: list,
       pdf: pdf || null,
       text: pdf ? null : text,
@@ -1312,5 +1354,5 @@ function shuffle(list) {
 
 // For backups.
 export function exportQuestions() {
-  return { resume, bank, sessions, levels, ...exportPractice() };
+  return { resume, bank, sessions, levels, ...exportPractice(), projects: exportProjects() };
 }
