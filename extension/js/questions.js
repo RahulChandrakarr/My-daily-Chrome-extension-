@@ -127,6 +127,7 @@ function render() {
     puzzles: () => renderPractice('puzzle', { open: practiceOpen() }),
     comm: () => renderPractice('comm', { open: practiceOpen() }),
   };
+  body.dataset.view = view; // colours the cards by area, see the Questions CSS
   body.replaceChildren((views[view] || renderDaily)());
 }
 
@@ -504,7 +505,11 @@ function renderQuiz(session) {
     }));
   }
   body.append(actions);
-  wrap.append(head, card('', body));
+  const progress = el('div', 'q-progress', { role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(session.questionIds.length), 'aria-valuenow': String(session.position + (answered ? 1 : 0)) });
+  const fill = el('span');
+  fill.style.width = `${Math.round(((session.position + (answered ? 1 : 0)) / session.questionIds.length) * 100)}%`;
+  progress.append(fill);
+  wrap.append(head, progress, card('', body));
   return wrap;
 }
 
@@ -605,8 +610,10 @@ function renderResult(session, note = '') {
 function renderProfile() {
   const wrap = el('div', 'q-stack');
   wrap.append(renderProfileHead());
-  wrap.append(...renderReport().childNodes);
-  wrap.append(...renderFeedback().childNodes);
+  // Report cards are knowledge-coloured unless they set their own area
+  // (the problem-solving and communication cards do); feedback is coaching.
+  [...renderReport().childNodes].forEach((node) => { if (node.dataset && !node.dataset.area) node.dataset.area = 'know'; wrap.append(node); });
+  [...renderFeedback().childNodes].forEach((node) => { if (node.dataset) node.dataset.area = 'coach'; wrap.append(node); });
   return wrap;
 }
 
@@ -664,16 +671,27 @@ function renderProfileHead() {
     row.append(el('b', '', { text: group }));
     items.forEach((t) => {
       const stat = accuracy.get(t.id);
-      const chip = el('span', `chip${stat ? (stat.accuracy >= PASS_MARK ? ' is-strong' : stat.total >= 3 ? ' is-weak' : '') : ''}`, {
-        text: stat ? `${t.name} · ${Math.round(stat.accuracy * 100)}%` : t.name,
+      // A chip with a small accuracy bar under the name once the topic has been asked.
+      const chip = el('span', `chip q-topic-chip${stat ? (stat.accuracy >= PASS_MARK ? ' is-strong' : stat.total >= 3 ? ' is-weak' : ' is-mid') : ''}`, {
         title: stat ? `${stat.correct} of ${stat.total} right` : 'Not asked yet',
       });
+      chip.append(el('span', 'q-topic-chip-name', { text: t.name }));
+      if (stat) {
+        chip.append(el('span', 'q-topic-chip-pct', { text: `${Math.round(stat.accuracy * 100)}%` }));
+        const bar = el('span', 'q-topic-chip-bar');
+        const fill = el('span');
+        fill.style.width = `${Math.round(stat.accuracy * 100)}%`;
+        bar.append(fill);
+        chip.append(bar);
+      }
       row.append(chip);
     });
     list.append(row);
   });
   head.append(list);
-  return card('', head);
+  const hero = card('', head);
+  hero.classList.add('q-hero');
+  return hero;
 }
 
 // Your work, summarised: what you're on now, the last 30 days in figures,

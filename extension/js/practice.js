@@ -748,6 +748,7 @@ export function renderPracticeReport(days, rangeLabel) {
   } else {
     nodes.push(card(`${rangeLabel}: problem solving`, pStats, el('p', 'q-hint', { text: 'No puzzles in this range yet.' })));
   }
+  nodes.at(-1).dataset.area = 'solve';
 
   const c = commStats(days);
   const cStats = el('div', 'q-stats');
@@ -783,6 +784,7 @@ export function renderPracticeReport(days, rangeLabel) {
     parts.push(el('p', 'q-hint', { text: 'No communication tasks in this range yet.' }));
   }
   nodes.push(card(`${rangeLabel}: communication`, ...parts));
+  nodes.at(-1).dataset.area = 'talk';
   return nodes;
 }
 
