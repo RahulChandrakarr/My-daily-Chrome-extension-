@@ -21,9 +21,11 @@
 import { load, save, watch } from './store.js';
 import { dateKey, addDays, daysBetween, parseKey } from './dates.js';
 import { DEFAULT_TOPICS } from './topics.js';
+import { stackTechs } from './stack.js';
+import { streaks } from './contributions.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
-import { initPractice, renderPractice, renderPracticeReport, practiceNotes, exportPractice, PRACTICE_LEVELS } from './practice.js';
+import { initPractice, renderPractice, renderPracticeReport, practiceNotes, practiceDays, practiceLevelsPassed, exportPractice, PRACTICE_LEVELS } from './practice.js';
 import { explainChoice, renderLesson } from './teach.js';
 import { el, icon, toast, plural } from './ui.js';
 
@@ -67,7 +69,14 @@ export async function initQuestions() {
   ]);
   activeSessionId = sessions.find((s) => !s.finishedAt && s.day === dateKey())?.id || null;
   view = await load('questionsView', 'daily');
+  if (view === 'report' || view === 'feedback') view = 'profile'; // merged into Profile
   await initPractice({ rerender: render });
+  // What the rest of My Daily knows about your work, for the profile's work summary.
+  const WORK_KEYS = { workLog: 'log', contribCalendar: 'calendar', workStack: 'stack', workNotes: 'notes', tasks: 'tasks', learningLog: 'learning' };
+  await Promise.all(Object.entries(WORK_KEYS).map(async ([key, field]) => {
+    work[field] = await load(key, null);
+    watch(key, (value) => { work[field] = value; if (view === 'profile') render(); });
+  }));
   $('questions-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('[data-view]');
     if (!button) return;
@@ -114,8 +123,7 @@ function render() {
   const views = {
     daily: renderDaily,
     levels: renderLevels,
-    report: renderReport,
-    feedback: renderFeedback,
+    profile: renderProfile,
     puzzles: () => renderPractice('puzzle', { open: practiceOpen() }),
     comm: () => renderPractice('comm', { open: practiceOpen() }),
   };
@@ -368,6 +376,7 @@ async function writeQuestions({ count, topics: list, kind, level = null, difficu
     + 'Keep code snippets short and put them in the question text. Never repeat a question from the list of earlier questions, and vary the wording and angle. '
     + 'Write in plain English.';
   const prompt = `Write exactly ${count} questions.\n\n`
+    + (resume?.summary ? `About the person (ask some questions about the kind of work and tools on their resume, as an interviewer who read it would):\n${resume.summary}\n\n` : '')
     + `Topics (use the id in the topic field, spread the questions across them${list.length > 1 ? ', at least one per topic' : ''}):\n${list.map((t) => `- ${t.id}: ${t.name}`).join('\n')}\n\n`
     + `Difficulty: ${difficulty}.\n\n`
     + `About ${multi} of the questions should have two or more right answers (choose all that apply); the rest have exactly one.\n\n`
@@ -582,12 +591,191 @@ function renderResult(session, note = '') {
   }
   const actions = el('div', 'q-actions');
   if (session.kind === 'level') actions.append(button('Back to levels', 'btn', () => { view = 'levels'; render(); }));
-  actions.append(button('See the report', 'btn--ghost', () => { view = 'report'; save('questionsView', view); render(); }));
+  actions.append(button('See your profile', 'btn--ghost', () => { view = 'profile'; save('questionsView', view); render(); }));
   body.append(actions);
   return card(session.kind === 'daily' ? 'Today\'s quiz' : `${topicName(session.topic)} · Level ${session.level}`, body);
 }
 
 // --- Report ---------------------------------------------------------------------------
+
+// --- Profile ---------------------------------------------------------------------------
+
+// One page: who you are (from the resume), how you're doing (the report for
+// today, this week or this month) and what to do about it (today's feedback).
+function renderProfile() {
+  const wrap = el('div', 'q-stack');
+  wrap.append(renderProfileHead());
+  wrap.append(...renderReport().childNodes);
+  wrap.append(...renderFeedback().childNodes);
+  return wrap;
+}
+
+function renderProfileHead() {
+  const head = el('div', 'q-profile');
+  const settingsName = resume?.name || '';
+  const name = settingsName || 'Your profile';
+  const top = el('div', 'q-profile-top');
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+  top.append(el('div', 'q-avatar', { text: initials, 'aria-hidden': 'true' }));
+  const who = el('div', 'q-profile-who');
+  who.append(el('h3', 'q-profile-name', { text: name }));
+  who.append(el('p', 'q-profile-sub', {
+    text: resume
+      ? `${plural(resume.topics.length, 'topic')} from ${resume.pdf ? resume.pdf.name : 'your resume'}, read ${new Date(resume.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}.`
+      : 'Upload your resume and the questions, levels and feedback are built around your own work.',
+  }));
+  top.append(who);
+  top.append(button(resume ? 'Update resume' : 'Upload resume', 'btn btn--small', openResumeDialog));
+  head.append(top);
+
+  // All-time figures.
+  const days = practiceDaysAll();
+  const answered = bank.reduce((n, q) => n + q.asks.length, 0);
+  const right = bank.reduce((n, q) => n + q.asks.filter((a) => a.correct).length, 0);
+  const levelsPassed = quizLevelsPassed() + practiceLevelsPassed();
+  const tiles = el('div', 'q-profile-stats');
+  [
+    [String(streakOf(days)), 'day streak'],
+    [String(days.size), 'days practised'],
+    [String(answered), 'questions answered'],
+    [answered ? `${percent(right, answered)}%` : '–', 'right all-time'],
+    [String(levelsPassed), 'levels passed'],
+  ].forEach(([v, l]) => {
+    const t = el('div', 'q-stat-tile');
+    t.append(el('b', '', { text: v }), el('span', '', { text: l }));
+    tiles.append(t);
+  });
+  head.append(tiles);
+  head.append(renderWorkSummary());
+
+  if (resume?.summary) {
+    const about = el('details', 'q-solution');
+    about.append(el('summary', '', { text: 'About me, from the resume' }), el('p', 'q-explanation', { text: resume.summary }));
+    head.append(about);
+  }
+
+  // Topics, grouped as the resume reader grouped them.
+  const groups = new Map();
+  topics().forEach((t) => groups.set(t.group || 'Skills', [...(groups.get(t.group || 'Skills') || []), t]));
+  const accuracy = new Map(topicStats(3650).map((t) => [t.id, t]));
+  const list = el('div', 'q-profile-groups');
+  [...groups.entries()].forEach(([group, items]) => {
+    const row = el('div', 'q-profile-group');
+    row.append(el('b', '', { text: group }));
+    items.forEach((t) => {
+      const stat = accuracy.get(t.id);
+      const chip = el('span', `chip${stat ? (stat.accuracy >= PASS_MARK ? ' is-strong' : stat.total >= 3 ? ' is-weak' : '') : ''}`, {
+        text: stat ? `${t.name} · ${Math.round(stat.accuracy * 100)}%` : t.name,
+        title: stat ? `${stat.correct} of ${stat.total} right` : 'Not asked yet',
+      });
+      row.append(chip);
+    });
+    list.append(row);
+  });
+  head.append(list);
+  return card('', head);
+}
+
+// Your work, summarised: what you're on now, the last 30 days in figures,
+// your GitHub contributions and the tools you use. Figures and a few lines,
+// never the commit list; that's the Work tab's job.
+const work = { log: null, calendar: null, stack: null, notes: null, tasks: null, learning: null };
+
+function renderWorkSummary() {
+  const box = el('div', 'q-work');
+  const today = dateKey();
+  const since = (days) => addDays(today, -days);
+  const log = (work.log || []).filter((r) => r.id >= since(29));
+  const week = log.filter((r) => r.id >= since(6));
+  const notes = (work.notes || []).filter((n) => !n.deleted);
+
+  // Now: the projects pushed to or noted in the last 7 days.
+  const projects = new Map();
+  week.forEach((r) => r.repos.forEach((repo) => {
+    const p = projects.get(repo.repo) || { name: repo.repo, commits: 0, areas: new Set(), notes: 0, last: '' };
+    p.commits += repo.count;
+    repo.areas?.forEach((a) => p.areas.add(a));
+    if (r.id > p.last) p.last = r.id;
+    projects.set(repo.repo, p);
+  }));
+  notes.filter((n) => n.day >= since(6)).forEach((n) => {
+    const key = n.project.split('/').pop();
+    const p = projects.get(key) || { name: key, commits: 0, areas: new Set(), notes: 0, last: '' };
+    p.notes += 1;
+    if (n.day > p.last) p.last = n.day;
+    projects.set(key, p);
+  });
+  const now = [...projects.values()].sort((a, b) => b.commits - a.commits || b.last.localeCompare(a.last)).slice(0, 5);
+  const nowCard = el('div', 'q-work-block');
+  nowCard.append(el('b', '', { text: 'Working on now' }));
+  if (now.length) {
+    const list = el('ul', 'q-ul q-work-list');
+    now.forEach((p) => {
+      const bits = [p.commits ? plural(p.commits, 'commit') : null, p.areas.size ? `in ${[...p.areas].slice(0, 3).join(', ')}` : null, p.notes ? plural(p.notes, 'note') : null].filter(Boolean);
+      const li = el('li');
+      li.append(el('b', '', { text: p.name }), document.createTextNode(bits.length ? ` · ${bits.join(', ')}` : ''));
+      list.append(li);
+    });
+    nowCard.append(list);
+  } else {
+    nowCard.append(el('p', 'q-hint', { text: (work.log || []).length ? 'Nothing pushed or noted in the last 7 days.' : 'Connect GitHub in Settings and this fills in from the repos you push to.' }));
+  }
+  box.append(nowCard);
+
+  // Last 30 days, in figures.
+  const sum = (field) => log.reduce((n, r) => n + (r.stats?.[field] || 0), 0);
+  const repos = new Set(log.flatMap((r) => r.repos.map((x) => x.repo)));
+  const doneTasks = (work.tasks || []).filter((t) => t.done && !t.deleted && t.doneAt && dateKey(new Date(t.doneAt)) >= since(29)).length;
+  const learned = (work.learning || []).filter((e) => Math.max(e.readAt || 0, e.doneAt || 0) && dateKey(new Date(Math.max(e.readAt || 0, e.doneAt || 0))) >= since(29)).length;
+  const tiles = el('div', 'q-profile-stats q-work-stats');
+  [
+    [String(sum('commits')), 'commits, 30 days'],
+    [String(log.filter((r) => r.stats?.commits).length), 'days with a push'],
+    [String(repos.size), 'projects touched'],
+    [String(sum('opened') + sum('merged') + sum('reviewed')), 'pull requests'],
+    [String(doneTasks), 'to-dos done'],
+    [String(learned), 'things read or tried'],
+  ].forEach(([v, l]) => {
+    const t = el('div', 'q-stat-tile q-stat-tile--small');
+    t.append(el('b', '', { text: v }), el('span', '', { text: l }));
+    tiles.append(t);
+  });
+  box.append(tiles);
+
+  // Contributions and tools, one line each.
+  const lines = el('div', 'q-work-lines');
+  if (work.calendar?.days?.length) {
+    const s = streaks(work.calendar.days);
+    lines.append(el('p', '', { text: `GitHub: ${work.calendar.total.toLocaleString()} contributions in the last year on ${plural(s.activeDays, 'day')}; ${s.current ? `${plural(s.current, 'day')} streak now` : 'no streak at the moment'}, longest ${plural(s.longest, 'day')}.` }));
+  }
+  const techs = stackTechs(work.stack, 10);
+  if (techs.length) lines.append(el('p', '', { text: `Tools in the repos you push to: ${techs.map((t) => t.name).join(', ')}.` }));
+  if (lines.childNodes.length) box.append(lines);
+  return box;
+}
+
+function quizLevelsPassed() {
+  return Object.values(levels).filter((v) => v && typeof v === 'object').flatMap((v) => Object.values(v)).filter((l) => l?.best && l.best.correct / l.best.total >= PASS_MARK).length;
+}
+
+// Every day with a finished quiz or a puzzle or communication attempt.
+function practiceDaysAll() {
+  const days = practiceDays();
+  sessions.filter((s) => s.finishedAt).forEach((s) => days.add(s.day));
+  return days;
+}
+
+// Days in a row with practice; today counts if it has some, else it starts from yesterday.
+function streakOf(days) {
+  let day = dateKey();
+  if (!days.has(day)) day = addDays(day, -1);
+  let n = 0;
+  while (days.has(day)) {
+    n += 1;
+    day = addDays(day, -1);
+  }
+  return n;
+}
 
 const RANGES = { day: ['Today', 0], week: ['This week', 6], month: ['This month', 29] };
 
@@ -784,9 +972,10 @@ function feedbackByRules(stats, week) {
 const RESUME_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'topics'],
+  required: ['name', 'summary', 'topics'],
   properties: {
     name: { type: 'string', description: 'the person\'s name as written on the resume' },
+    summary: { type: 'string', description: 'five to eight lines on their experience: years, roles, the main projects and what each was built with, so an interviewer could ask about their actual work' },
     topics: {
       type: 'array',
       items: {
@@ -818,6 +1007,7 @@ function initResumeDialog() {
     }
   });
   $('resume-form').addEventListener('submit', readResume);
+  $('resume-reread').addEventListener('click', (event) => readResume(event, { again: true }));
   $('resume-clear').addEventListener('click', async () => {
     if (!confirm('Forget the uploaded resume and go back to the built-in topics? Your quizzes and scores stay.')) return;
     resume = null;
@@ -833,6 +1023,13 @@ async function openResumeDialog() {
   $('resume-file').value = '';
   $('resume-file-name').textContent = '';
   $('resume-clear').hidden = !resume;
+  $('resume-saved').hidden = !resume;
+  $('resume-reread').hidden = !(resume?.pdf || resume?.text);
+  if (resume) {
+    const when = new Date(resume.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    const what = resume.pdf ? resume.pdf.name : resume.text ? 'pasted text' : 'topics only';
+    $('resume-saved').textContent = `Saved: ${resume.name} (${what}), read on ${when}, ${plural(resume.topics.length, 'topic')}. It stays until you upload another. To replace it, choose a new file or paste new text below.`;
+  }
   const source = await aiSource();
   $('resume-ai-note').textContent = source === 'openrouter'
     ? 'A PDF is read by Claude through OpenRouter. You can paste the text instead.'
@@ -862,17 +1059,19 @@ function renderResumeTopics() {
   $('resume-topics-wrap').hidden = !items.length;
 }
 
-async function readResume(event) {
+// Reads the file or text in the dialog. With `again`, re-reads the saved one
+// (for example after the AI is set up, or to refresh the topic list).
+async function readResume(event, { again = false } = {}) {
   event.preventDefault();
-  const file = $('resume-file').files[0];
-  const text = $('resume-text').value.trim();
-  const isPdf = file && /\.pdf$/i.test(file.name);
+  const file = again ? null : $('resume-file').files[0];
+  const text = again ? (resume?.text || '') : $('resume-text').value.trim();
+  const isPdf = again ? Boolean(resume?.pdf) : Boolean(file && /\.pdf$/i.test(file.name));
   if (!isPdf && text.length < 80) { toast('Paste the resume text, or choose a PDF.'); return; }
-  const button = $('resume-read');
+  const button = again ? $('resume-reread') : $('resume-read');
   button.disabled = true;
   button.textContent = 'Reading…';
   try {
-    const pdf = isPdf ? { name: file.name, base64: await toBase64(file) } : null;
+    const pdf = again ? resume.pdf : isPdf ? { name: file.name, base64: await toBase64(file) } : null;
     const instructions = 'You read a developer\'s resume and list every skill, technology, tool and area it shows, as topics an interviewer could ask about. '
       + 'Include languages, frameworks, databases, cloud and DevOps tools, AI work, mobile, and practices such as testing or system design when the resume shows them. '
       + 'Merge close variants (React and React.js). 10 to 40 topics.';
@@ -880,16 +1079,25 @@ async function readResume(event) {
     const seen = new Set();
     const list = (data.topics || []).map((t) => ({ id: slug(t.name), name: String(t.name).trim(), group: t.group || 'Other' })).filter((t) => t.name && !seen.has(t.id) && seen.add(t.id));
     if (!list.length) throw new Error('No topics were found in the resume.');
-    resume = { source: pdf ? 'pdf' : 'text', name: data.name || file?.name || 'your resume', topics: list, savedAt: Date.now() };
+    // The file (or text) is kept too, so it can be read again without uploading.
+    resume = {
+      source: pdf ? 'pdf' : 'text',
+      name: data.name || pdf?.name || 'your resume',
+      summary: String(data.summary || '').trim(),
+      topics: list,
+      pdf: pdf || null,
+      text: pdf ? null : text,
+      savedAt: Date.now(),
+    };
     await save(RESUME_KEY, resume);
-    toast(`Read ${resume.name}: ${plural(list.length, 'topic')}.`);
+    toast(`Read ${resume.name}: ${plural(list.length, 'topic')}. Saved until you upload another.`);
     $('resume-dialog').close();
     render();
   } catch (error) {
     reportAiError(error);
   } finally {
     button.disabled = false;
-    button.textContent = 'Read resume';
+    button.textContent = again ? 'Read again' : 'Read resume';
   }
 }
 

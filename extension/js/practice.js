@@ -711,6 +711,16 @@ export function commStats(days) {
   };
 }
 
+// Every day with a puzzle or communication attempt, for the profile streak.
+export function practiceDays() {
+  return new Set([...(puzzles?.attempts || []), ...(comm?.attempts || [])].filter((a) => !a.pending).map((a) => a.day));
+}
+
+export function practiceLevelsPassed() {
+  const count = (section, data) => Object.keys(data?.levels || {}).map(Number).filter((n) => levelPassed(section, n)).length;
+  return count('puzzle', puzzles) + count('comm', comm);
+}
+
 // Recent feedback text, for the daily Feedback prompt.
 export function practiceNotes() {
   const p = puzzleStats(7);
