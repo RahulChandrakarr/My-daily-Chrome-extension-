@@ -1764,9 +1764,18 @@ body[data-tab="work"] .work-card:not(.q-card) { border-top: 3px solid var(--hue-
 .pf-label { display: block; color: var(--muted); font-size: 11.5px; font-weight: 680; letter-spacing: 0.06em; text-transform: uppercase; }
 .pf-empty { color: var(--muted); font-size: 14px; line-height: 1.5; }
 .pf-empty-block { display: grid; justify-items: start; gap: 10px; }
-.pf-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr); gap: 16px; align-items: start; }
-.pf-col { display: grid; gap: 16px; min-width: 0; }
-@media (max-width: 1000px) { .pf-grid { grid-template-columns: 1fr; } }
+.pf-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr); gap: 16px; align-items: stretch; }
+.pf-col { display: grid; align-content: start; gap: 16px; min-width: 0; }
+/* The right column is as tall as the left one; Skills takes what's left and scrolls inside. */
+.pf-col--side { grid-template-rows: auto auto minmax(0, 1fr); align-content: stretch; }
+.pf-skills { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.pf-skills .pf-card-head { position: sticky; top: 0; z-index: 1; margin: -18px -20px 0; padding: 18px 20px 10px; background: var(--surface); }
+@media (max-width: 1000px) {
+  .pf-grid { grid-template-columns: 1fr; }
+  .pf-col--side { grid-template-rows: none; align-content: start; }
+  .pf-skills { overflow: visible; }
+  .pf-skills .pf-card-head { position: static; margin: 0; padding: 0; }
+}
 
 /* Hero */
 .pf-hero { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; animation: appear 260ms ease-out both; }

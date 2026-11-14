@@ -691,7 +691,7 @@ function renderProfile() {
   const grid = el('div', 'pf-grid');
   const main = el('div', 'pf-col');
   main.append(renderProgressCard(), renderAccuracyCard(), renderWorkCard());
-  const side = el('div', 'pf-col');
+  const side = el('div', 'pf-col pf-col--side');
   side.append(renderFeedbackCard(), renderStackCard(), renderSkillsCard());
   grid.append(main, side);
   page.append(grid);
@@ -974,7 +974,7 @@ function renderStackCard() {
 function renderSkillsCard() {
   const legend = el('span', 'pf-legend-item is-good pf-tested');
   legend.append(el('i', 'pf-swatch', { 'aria-hidden': 'true' }), document.createTextNode('Tested'));
-  const node = pfCard('Skills', `${plural(topics().length, 'topic')} from ${resume ? 'your resume' : 'the built-in resume'}`, { aside: legend });
+  const node = pfCard('Skills', `${plural(topics().length, 'topic')} from ${resume ? 'your resume' : 'the built-in resume'}`, { aside: legend, className: 'pf-skills' });
   const accuracy = new Map(topicStats(3650).map((t) => [t.id, t]));
   const groups = new Map();
   topics().forEach((t) => {
