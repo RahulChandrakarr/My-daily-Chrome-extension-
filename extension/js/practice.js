@@ -20,6 +20,7 @@ import { load, save } from './store.js';
 import { dateKey, addDays, parseKey } from './dates.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
+import { explainChoice, renderLesson } from './teach.js';
 import { el, toast, plural } from './ui.js';
 
 const PUZZLE_KEY = 'puzzleData';
@@ -326,6 +327,13 @@ function renderChoice(section, item, last) {
       const correct = chosen === item.answer;
       await recordAttempt(section, item, { chosen, correct, score: correct ? 100 : 0, feedback: item.explanation || '', source: 'rules' });
       rerender();
+      if (!correct && !item.lesson) {
+        // Teach it: written once, kept on the task.
+        explainChoice({ question: item.prompt, options: item.options, answers: [item.answer], chosen, topic: 'English grammar and professional writing' })
+          .then((lesson) => { item.lesson = lesson; return persist(section); })
+          .catch((error) => { item.lessonFailed = error.message; })
+          .finally(rerender);
+      }
     }));
   }
   return wrap;
@@ -422,7 +430,7 @@ function stopRecording() {
 const MARK_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['correct', 'score', 'feedback', 'better', 'strengths', 'fixes'],
+  required: ['correct', 'score', 'feedback', 'better', 'strengths', 'fixes', 'lesson'],
   properties: {
     correct: { type: 'boolean', description: 'for puzzles: the answer or approach is right; for communication: good enough to use as is' },
     score: { type: 'integer', description: '0 to 100' },
@@ -430,6 +438,19 @@ const MARK_SCHEMA = {
     better: { type: 'string', description: 'for communication: a strong version of the answer in the person\'s own voice; for puzzles: the key idea they missed, or empty if right' },
     strengths: { type: 'array', items: { type: 'string' }, description: 'one to three short points' },
     fixes: { type: 'array', items: { type: 'string' }, description: 'one to three short points: what to change' },
+    lesson: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['answer', 'why', 'example', 'analogy', 'remember'],
+      description: 'when the answer is not correct, teach the idea in easy everyday English; when it is correct, leave every field empty',
+      properties: {
+        answer: { type: 'string', description: 'the key idea or right approach in one plain sentence' },
+        why: { type: 'string', description: 'why it works and where the answer went wrong, two to four short sentences' },
+        example: { type: 'string', description: 'a small concrete example, or a short code snippet for coding problems' },
+        analogy: { type: 'string', description: 'an everyday analogy that makes it stick' },
+        remember: { type: 'string', description: 'one line to remember it by' },
+      },
+    },
   },
 };
 
@@ -453,7 +474,8 @@ async function markAnswer(section, item, { answer, seconds = null, spoken = fals
     source = 'self';
   }
   if (mark) {
-    await recordAttempt(section, item, { answer, correct: Boolean(mark.correct), score: clamp(mark.score), feedback: mark.feedback, better: mark.better, strengths: mark.strengths || [], fixes: mark.fixes || [], speech, seconds, source });
+    const lesson = !mark.correct && mark.lesson?.answer ? mark.lesson : null;
+    await recordAttempt(section, item, { answer, correct: Boolean(mark.correct), score: clamp(mark.score), feedback: mark.feedback, better: mark.better, strengths: mark.strengths || [], fixes: mark.fixes || [], lesson, speech, seconds, source });
     return;
   }
   // No AI: show the solution and let them mark it.
@@ -503,6 +525,11 @@ function renderMark(section, item, last) {
   const verdict = el('p', `q-verdict ${last.correct ? 'is-good' : 'is-bad'}`, { text: section === 'puzzle' ? (last.correct ? 'Solved.' : 'Not yet.') : `${last.score} / 100${last.correct ? ' · good to send' : ''}` });
   wrap.append(verdict);
   if (last.feedback) wrap.append(el('p', 'q-text', { text: last.feedback }));
+  if (!last.correct) {
+    const lesson = last.lesson || item.lesson || null;
+    if (lesson) wrap.append(renderLesson(lesson));
+    else if (item.skill === 'grammar') wrap.append(renderLesson(item.lessonFailed ? null : 'loading', { fallback: item.lessonFailed }));
+  }
   if (last.speech) {
     wrap.append(el('p', 'q-hint', { text: `${last.speech.words} words${last.speech.wpm ? `, ${last.speech.wpm} per minute (120-160 is a good interview pace)` : ''}, ${plural(last.speech.fillers, 'filler word')}${last.speech.fillerRate >= 5 ? ': try pausing instead' : ''}.` }));
   }

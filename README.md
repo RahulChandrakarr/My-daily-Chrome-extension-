@@ -105,6 +105,7 @@ How the Work tab finds your commits:
 
 ## Questions: how the quizzes work
 
+- **A wrong answer teaches you.** Get a question wrong anywhere in Questions and a "Let's learn this" box is written for it: the right answer, why (and why the one you picked was tempting), a small example, an everyday analogy and a line to remember it by, in easy English. It's written the moment you get it wrong, kept with the question, and shown again in the end-of-quiz list and whenever that question comes back. For puzzles and communication tasks it comes with the marking.
 - **Right answers aren't asked again.** A daily-quiz question you get right is retired.
 - **Wrong answers come back, but not within a week.** A question you got wrong returns in a daily quiz at least 7 days later, at most 4 per quiz; the rest of the quiz is new. Level questions stay with their level, so you can retake it.
 - **Topics each day:** a rotating slice of your resume (six topics a day, so every topic comes round), plus your two weakest topics of the last month.

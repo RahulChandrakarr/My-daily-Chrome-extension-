@@ -24,6 +24,7 @@ import { DEFAULT_TOPICS } from './topics.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
 import { initPractice, renderPractice, renderPracticeReport, practiceNotes, exportPractice, PRACTICE_LEVELS } from './practice.js';
+import { explainChoice, renderLesson } from './teach.js';
 import { el, icon, toast, plural } from './ui.js';
 
 const RESUME_KEY = 'quizResume';
@@ -476,6 +477,7 @@ function renderQuiz(session) {
     const verdict = el('p', `q-verdict ${answered.correct ? 'is-good' : 'is-bad'}`, { text: answered.correct ? 'Right.' : `Not quite. ${question.answers.length > 1 ? 'The right answers are marked.' : 'The right answer is marked.'}` });
     body.append(verdict);
     if (question.explanation) body.append(el('p', 'q-explanation', { text: question.explanation }));
+    if (!answered.correct) body.append(lessonFor(question, answered.chosen));
     const last = session.position >= session.questionIds.length - 1;
     actions.append(button(last ? 'See your score' : 'Next question', 'btn--primary', () => {
       const s = live();
@@ -507,6 +509,35 @@ function answer(session, shown, chosen) {
   if (correct && question.kind === 'daily') question.retired = true;
   save(BANK_KEY, bank);
   save(SESSIONS_KEY, sessions);
+}
+
+// The lesson for a wrong answer: kept on the question once written, so a
+// question that comes back a week later shows it straight away. Written
+// when first needed, then the quiz redraws.
+const lessonsInProgress = new Set();
+
+function lessonFor(shown, chosen) {
+  const question = bank.find((q) => q.id === shown.id) || shown;
+  if (question.lesson) return renderLesson(question.lesson);
+  if (question.lessonFailed) return renderLesson(null, { fallback: question.lessonFailed });
+  if (!lessonsInProgress.has(question.id)) {
+    lessonsInProgress.add(question.id);
+    explainChoice({ question: question.text, options: question.options, answers: question.answers, chosen, topic: question.topicName })
+      .then((lesson) => {
+        const live = bank.find((q) => q.id === question.id);
+        if (live) live.lesson = lesson;
+        return save(BANK_KEY, bank);
+      })
+      .catch((error) => {
+        const live = bank.find((q) => q.id === question.id);
+        if (live) live.lessonFailed = error.message || 'The explanation couldn\'t be written.';
+      })
+      .finally(() => {
+        lessonsInProgress.delete(question.id);
+        render();
+      });
+  }
+  return renderLesson('loading');
 }
 
 function finishSession(session) {
@@ -544,6 +575,7 @@ function renderResult(session, note = '') {
       const item = el('div', 'q-missed-item');
       item.append(el('p', 'q-missed-q', { text: q.text }), el('p', 'q-missed-a', { text: `Answer: ${q.answers.map((i) => q.options[i]).join('; ')}` }));
       if (q.explanation) item.append(el('p', 'q-explanation', { text: q.explanation }));
+      if (q.lesson) item.append(renderLesson(q.lesson));
       list.append(item);
     });
     body.append(list);
