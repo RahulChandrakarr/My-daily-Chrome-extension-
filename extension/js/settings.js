@@ -264,34 +264,40 @@ async function saveAi(event) {
   const key = $('openrouter-key').value.trim();
   const model = $('ai-model').value.trim();
   const button = $('ai-config').querySelector('button[type="submit"]');
+  const status = $('ai-status');
   button.disabled = true;
+  status.classList.remove('is-error');
+  status.textContent = key ? 'Checking the key with OpenRouter…' : 'Saving…';
   try {
     if (key) {
       const info = await verifyOpenRouterKey(key);
       await save(AI_AUTH_KEY, { key, savedAt: Date.now() });
       updateSettings({ aiModel: model });
-      toast(`OpenRouter key works${info.limitRemaining != null ? ` ($${Number(info.limitRemaining).toFixed(2)} left)` : ''}.`);
+      await renderAiState(`Key saved${info.limitRemaining != null ? `, $${Number(info.limitRemaining).toFixed(2)} of credit left` : ''}. `);
+      toast('OpenRouter key saved.');
     } else {
       await save(AI_AUTH_KEY, null);
       updateSettings({ aiModel: model });
-      toast('Saved.');
+      await renderAiState();
     }
   } catch (error) {
+    status.classList.add('is-error');
+    status.textContent = `Not saved: ${error.message}${/fetch/i.test(error.message) ? ' (is the internet on?)' : ''}`;
     toast(error.message);
   } finally {
     button.disabled = false;
-    renderAiState();
   }
 }
 
-async function renderAiState() {
+async function renderAiState(prefix = '') {
   const settings = getSettings();
   const [auth, onDevice] = await Promise.all([load(AI_AUTH_KEY, null), onDeviceModelStatus()]);
-  $('ai-status').textContent = auth?.key
+  $('ai-status').classList.remove('is-error');
+  $('ai-status').textContent = prefix + (auth?.key
     ? `Using ${settings.aiModel || DEFAULT_MODEL} through OpenRouter.`
     : onDevice === 'available'
       ? 'No key. Using Chrome\'s on-device AI: free, but simpler questions and no PDF reading.'
-      : 'No key, and Chrome\'s on-device AI isn\'t available here. Questions can\'t be written until one is set up.';
+      : 'No key, and Chrome\'s on-device AI isn\'t available here. Questions can\'t be written until one is set up.');
 }
 
 // --- Keep my streak ------------------------------------------------------------------

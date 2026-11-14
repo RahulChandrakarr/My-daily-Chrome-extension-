@@ -1415,7 +1415,37 @@ textarea.note-text-field { min-height: 160px; font-size: 15px; line-height: 1.5;
 .streak-setting .setting-inline { padding-left: 24px; }
 .streak-setting[data-on="false"] .setting-inline { opacity: 0.6; }
 #streak-status a { color: var(--text); }
-#streak-status.is-error { color: var(--late); }
+#streak-status.is-error,
+#ai-status.is-error { color: var(--late); }
+.q-tasks { display: grid; gap: 6px; }
+.q-task {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.q-task:hover { border-color: var(--line-strong); }
+.q-task-kind { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.q-task-title { font-size: 14.5px; }
+.q-task-status { color: var(--muted); font-size: 13px; }
+.q-task-status.is-good { color: var(--done); }
+.q-given { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.q-answer { min-height: 120px; font-size: 14.5px; }
+.q-rec-status { min-height: 1.4em; }
+.q-mark { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.q-mark-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.q-ul { padding-left: 18px; font-size: 14px; line-height: 1.5; }
+.q-solution summary { cursor: pointer; color: var(--muted); font-size: 13.5px; }
+.q-solution p { margin-top: 8px; white-space: pre-wrap; }
+.q-better { padding: 10px 12px; border-left: 3px solid var(--done); background: var(--surface-2); border-radius: 0 10px 10px 0; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 14px; }
 .check-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 14px; }
 .check-row label,
@@ -1527,8 +1557,11 @@ label.check-row { display: flex; flex: 1; align-items: center; justify-content: 
 
 .toast {
   position: fixed;
+  top: auto;
+  right: auto;
   bottom: 24px;
   left: 50%;
+  margin: 0;
   z-index: 10;
   display: flex;
   align-items: center;

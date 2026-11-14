@@ -23,6 +23,7 @@ import { dateKey, addDays, daysBetween, parseKey } from './dates.js';
 import { DEFAULT_TOPICS } from './topics.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
+import { initPractice, renderPractice, renderPracticeReport, practiceNotes, exportPractice, PRACTICE_LEVELS } from './practice.js';
 import { el, icon, toast, plural } from './ui.js';
 
 const RESUME_KEY = 'quizResume';
@@ -61,6 +62,7 @@ export async function initQuestions() {
   ]);
   activeSession = sessions.find((s) => !s.finishedAt && s.day === dateKey()) || null;
   view = await load('questionsView', 'daily');
+  await initPractice({ rerender: render });
   $('questions-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('[data-view]');
     if (!button) return;
@@ -103,7 +105,14 @@ function render() {
     body.replaceChildren(renderQuiz(activeSession));
     return;
   }
-  const views = { daily: renderDaily, levels: renderLevels, report: renderReport, feedback: renderFeedback };
+  const views = {
+    daily: renderDaily,
+    levels: renderLevels,
+    report: renderReport,
+    feedback: renderFeedback,
+    puzzles: () => renderPractice('puzzle', { open: practiceOpen() }),
+    comm: () => renderPractice('comm', { open: practiceOpen() }),
+  };
   body.replaceChildren((views[view] || renderDaily)());
 }
 
@@ -208,6 +217,15 @@ function dailyTopics() {
 function levelsOpen() {
   const start = resume?.savedAt ? dateKey(new Date(resume.savedAt)) : (levels.startedOn || dateKey());
   return Math.min(LEVEL_COUNT, LEVELS_AT_START + Math.max(0, daysBetween(start, dateKey())));
+}
+
+// Puzzle and communication levels open on the same clock.
+function practiceOpen() {
+  if (!levels.startedOn) {
+    levels.startedOn = dateKey();
+    save(LEVELS_KEY, levels);
+  }
+  return Math.min(PRACTICE_LEVELS, levelsOpen());
 }
 
 function renderLevels() {
@@ -579,8 +597,7 @@ function renderReport() {
     wrap.append(card('By topic, weakest first', list));
   }
 
-  const comms = el('p', 'q-hint', { text: 'Communication and puzzles will show here once those sections exist.' });
-  wrap.append(card('Communication', comms));
+  wrap.append(...renderPracticeReport(days, RANGES[reportRange][0]));
   return wrap;
 }
 
@@ -672,9 +689,10 @@ async function writeFeedback() {
       + `Last 7 days: ${plural(week.length, 'quiz', 'quizzes')}, ${week.reduce((n, s) => n + s.score.correct, 0)} of ${week.reduce((n, s) => n + Object.keys(s.answers).length, 0)} right.\n`
       + `Accuracy by topic over 30 days (weakest first):\n${stats.map((t) => `- ${t.name}: ${Math.round(t.accuracy * 100)}% of ${t.total}`).join('\n') || '- nothing answered yet'}\n`
       + `Questions missed this week:\n${recentWrong.map((t) => `- ${t}`).join('\n') || '- none'}\n`
-      + `Levels passed: ${Object.values(levels).filter((v) => v && typeof v === 'object').flatMap((v) => Object.values(v)).filter((l) => l?.best && l.best.correct / l.best.total >= PASS_MARK).length}.`;
-    const instructions = 'You coach a full-stack developer preparing for job interviews. Be direct and specific, no flattery. '
-      + 'Name 2-4 topics to work on, each with one concrete thing to do today. '
+      + `Levels passed: ${Object.values(levels).filter((v) => v && typeof v === 'object').flatMap((v) => Object.values(v)).filter((l) => l?.best && l.best.correct / l.best.total >= PASS_MARK).length}.\n`
+      + practiceNotes();
+    const instructions = 'You coach a full-stack developer preparing for job interviews: technical knowledge, problem solving and professional communication in English. Be direct and specific, no flattery. '
+      + 'Name 2-4 things to work on (a topic, problem-solving habit or communication habit), each with one concrete thing to do today. '
       + 'Then name 2-4 technologies, tools or practices worth learning next, picked for this person: things that are new or growing in their field, or gaps next to what they already use. Say why in one line.';
     let result;
     let source = 'ai';
@@ -856,5 +874,5 @@ function shuffle(list) {
 
 // For backups.
 export function exportQuestions() {
-  return { resume, bank, sessions, levels };
+  return { resume, bank, sessions, levels, ...exportPractice() };
 }

@@ -72,18 +72,31 @@ export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many
 
 let toastTimer = null;
 
+// The toast is a popover, so it sits in the browser's top layer and shows
+// above an open dialog (Settings, the note box). A plain fixed element never
+// does, whatever its z-index.
+function showToast(box) {
+  box.hidden = false;
+  try { if (box.showPopover && !box.matches(':popover-open')) box.showPopover(); } catch { /* not a popover here */ }
+}
+
+function hideToast(box) {
+  try { if (box.hidePopover && box.matches(':popover-open')) box.hidePopover(); } catch { /* already hidden */ }
+  box.hidden = true;
+}
+
 export function toast(message, action) {
   const box = document.getElementById('toast');
   box.replaceChildren(el('span', '', { text: message }));
   if (action) {
     const button = el('button', 'toast-action', { type: 'button', text: action.label });
     button.addEventListener('click', () => {
+      hideToast(box);
       action.run();
-      box.hidden = true;
     });
     box.append(button);
   }
-  box.hidden = false;
+  showToast(box);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { box.hidden = true; }, 6000);
+  toastTimer = setTimeout(() => hideToast(box), 6000);
 }

@@ -112,7 +112,10 @@ How the Work tab finds your commits:
 - **Report** counts finished quizzes and levels. The by-topic list is sorted weakest first, so it doubles as a to-study list.
 - **Feedback** is written from your accuracy by topic, the questions you missed this week, your resume topics and the tools in the repos you push to. Without AI, it's built from your scores alone.
 - **Where it's stored:** on this computer, in the extension's storage, like everything else. Resume topics are kept; the resume file isn't. Your answers never go to the AI; it only writes questions and the feedback summary.
-- **Puzzles and Communication** sections are planned next, and the report has room for them.
+- **Puzzles:** one new problem a day (a coding problem, a logic puzzle, an estimation or a probability question), and 40 levels of five puzzles each, from warm-ups to final-round problems. You write your approach or answer and the AI marks it against a reference solution, with the key idea you missed if it's wrong. Two hints are there if you want them. A level is passed when all five are solved. The daily puzzle's difficulty follows the highest level you've passed.
+- **Communication:** five tasks a day (a grammar question, a message to rewrite professionally, a work situation to reply to, and one to answer out loud), and 40 levels of five tasks, from clear sentences through client emails, explaining technical things, hard conversations, and leadership and interviews. Written answers are scored out of 100 with what was good, what to change, and a stronger version in your own voice. For the spoken task, **Record** uses Chrome's speech recognition to transcribe you (nothing is stored as audio; Chrome asks for the microphone once); filler words and words per minute are counted here, and the AI judges the content. An average of 70 passes a level.
+- **Marking without AI:** the solution is shown and you mark yourself with "I got it" or "Not yet".
+- The **Report** has problem-solving and communication sections (score by skill, filler-word rate, pace, a trend by day), and the daily **Feedback** reads them too.
 
 ## Where your data lives
 
@@ -172,6 +175,7 @@ my-daily/
         ├── work.js          Work tab
         ├── notes.js         Notes tab, the note box and the notes on Work's project cards
         ├── questions.js     Questions tab: resume topics, daily quiz, levels, report, feedback
+        ├── practice.js      Puzzles and Communication: daily sets, levels, marking, speaking
         ├── ai.js            asks OpenRouter (Claude) or Chrome's on-device AI for JSON
         ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
