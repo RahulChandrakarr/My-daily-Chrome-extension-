@@ -6,6 +6,14 @@
 import { dateKey } from './js/dates.js';
 import { buildWorkDays, saveWorkRecords } from './js/github.js';
 import { keepStreak, STREAK_STATE_KEY } from './js/streak.js';
+import { BACKGROUND_VERSION } from './js/version.js';
+
+// The dashboard asks which version of this code is running (see js/version.js).
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'background-version' || sender.id !== chrome.runtime.id) return false;
+  sendResponse({ version: BACKGROUND_VERSION });
+  return false;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== 'fetch-text' || sender.id !== chrome.runtime.id) return false;

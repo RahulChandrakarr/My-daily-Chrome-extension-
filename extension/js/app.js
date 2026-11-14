@@ -13,6 +13,7 @@ import { initNotes, renderNotes } from './notes.js';
 import { initTrending } from './trending.js';
 import { dateKey } from './dates.js';
 import { plural } from './ui.js';
+import { BACKGROUND_VERSION } from './version.js';
 
 const DEFAULT_SETTINGS = {
   name: '',
@@ -68,6 +69,18 @@ async function main() {
   });
   setInterval(tick, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  checkBackground();
+}
+
+// After an update, Chrome keeps running the old background code until the
+// extension is reloaded, and the streak check and evening summary quietly stop.
+// An old background doesn't answer this message at all.
+async function checkBackground() {
+  if (!globalThis.chrome?.runtime?.id) return;
+  const reply = await chrome.runtime.sendMessage({ type: 'background-version' }).catch(() => null);
+  if (reply?.version === BACKGROUND_VERSION) return;
+  $('update-banner').hidden = false;
+  $('update-reload').addEventListener('click', () => chrome.runtime.reload(), { once: true });
 }
 
 function updateSettings(changes) {

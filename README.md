@@ -72,7 +72,8 @@ Once signed in, changes upload about a second after you make them. Changes from 
 - **The commit:** if there are none, it commits `YYYY/YYYY-MM-DD.md` to your log repo, with a message like `Daily log for Thu 5 Nov: 3 to-dos done, 2 read`. You get a notification, and clicking it opens the commit. It commits at most once a day, and **Check now** in Settings runs the check right away.
 - **The repo:** it has to be yours, not an organisation's, so client and work repos are never touched. If it doesn't exist, it's created as a private repo when you turn this on. In a public repo the log leaves out your to-do titles.
 - **Private repos:** commits to them show on your public graph only with "Include private contributions" on in your GitHub profile settings.
-- **Chrome has to be open:** if it was closed at the set time, the check runs when you open it, as long as it's still the same day.
+- **This check needs Chrome open and the computer awake.** If Chrome was closed at the set time, the check runs when you open it, as long as it's still the same day. For days your computer stays off or asleep, add the workflow below.
+- **With the computer off:** [daily-log/](daily-log/) holds a GitHub Actions workflow for your log repo. It runs on GitHub at 10:47 PM and again at 11:19 PM India time. It reads your public contribution graph, and if today is empty it commits a short check-in as you (with your GitHub no-reply address, so it counts). To add it, copy the `.github` folder into your log repo and push. Settings can't add it for you, because a token needs the extra `workflow` scope to write workflows. Set My Daily's own check earlier than 10:47 PM, so on days your computer is on, the fuller log goes in first.
 
 **Your stack** comes from the repos you pushed to in the last two weeks: their languages, `package.json` dependencies and telltale files (`supabase/`, `Dockerfile`, `vercel.json`…). Repos you pushed to recently, and committed to most, count for more. The list of tools it recognises, and where to follow each one, is in [extension/js/stack.js](extension/js/stack.js).
 
@@ -132,6 +133,7 @@ If a site blocks the request, the card shows a tinted cover with the source's na
 
 ```
 my-daily/
+├── daily-log/.github/      Keep my streak workflow, copied into your log repo (works with the computer off)
 ├── setup.sh                 checks files, makes icons, opens Chrome's Extensions page
 ├── supabase/schema.sql      tables, row-level security and the sync trigger
 ├── tools/make_icons.py      draws the icons (Python standard library only)
@@ -160,6 +162,7 @@ my-daily/
         ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
         ├── streak.js        Keep my streak: the evening check and the day's log commit
+        ├── version.js       which background code the dashboard expects, to catch a stale one
         ├── stack.js         your stack: tools found in your repos, and news about them
         ├── trending.js      Trending on GitHub (reads github.com/trending)
         ├── sync.js          Supabase sign-in, push and pull
@@ -172,5 +175,6 @@ my-daily/
 
 - **The new tab went back to Google's page.** You probably clicked "Change it back". Turn My Daily back on in `chrome://extensions`.
 - **The news says it couldn't reach some sources.** Those sites were down or blocked the request; the rest still load. Press **Refresh** to try again.
+- **A "My Daily needs a reload" bar at the top.** Chrome keeps running the extension's old background code after an update, and restarting Chrome doesn't refresh it. Until the extension is reloaded, the streak check and the evening summary don't run. Click **Reload My Daily** in the bar, or the reload icon on My Daily in `chrome://extensions`.
 - **Sync shows a red dot.** Open Settings to see the error. "Session ended" means sign in again. A 404 error usually means `schema.sql` hasn't been run in that project.
 - **To remove it**, click **Remove** on My Daily in `chrome://extensions`. Export a backup first if you aren't using Supabase.

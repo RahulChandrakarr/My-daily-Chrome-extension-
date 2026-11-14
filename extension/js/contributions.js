@@ -19,6 +19,10 @@ let loading = false;
 export async function initContributions() {
   calendar = await load(CACHE_KEY, null);
   watch('githubAuth', () => refreshContributions({ force: true }));
+  // GitHub's graph takes a minute or so to count a new commit.
+  watch('streakState', (state) => {
+    if (state?.status === 'committed') setTimeout(() => refreshContributions({ force: true }), 90_000);
+  });
   render();
 }
 

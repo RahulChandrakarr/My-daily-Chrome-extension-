@@ -1,0 +1,32 @@
+# Keep my streak: a backup for My Daily's evening check that works with your
+# computer off. If GitHub shows no contribution for today by the evening (India
+# time), it commits a short check-in as you. On days you pushed anything, or
+# My Daily already committed the day's log, it does nothing.
+#
+# GitHub can start scheduled runs late, so it runs twice, and the script skips
+# a run that starts after midnight. Times are in UTC.
+name: Keep my streak
+
+on:
+  schedule:
+    - cron: "17 17 * * *" # 22:47 in India
+    - cron: "49 17 * * *" # 23:19 in India, in case the first run was skipped
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keep-streak
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commit a check-in if today has no contribution
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LOG_TZ: Asia/Kolkata
+        run: python3 .github/keep_streak.py

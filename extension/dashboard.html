@@ -11,6 +11,11 @@
 </head>
 <body data-tab="news">
   <div class="page">
+    <div id="update-banner" class="update-banner" role="status" hidden>
+      <p><b>My Daily needs a reload.</b> Chrome is still running its old background code, so the streak check and the evening summary aren't running.</p>
+      <button id="update-reload" class="btn btn--primary" type="button">Reload My Daily</button>
+    </div>
+
     <header class="hero">
       <div class="hero-day">
         <p class="greeting" id="greeting"></p>
@@ -384,7 +389,7 @@
             <input id="streak-repo" class="field field--repo" type="text" placeholder="you/daily-log" autocomplete="off" spellcheck="false">
             <button id="streak-check" class="btn btn--ghost" type="button">Check now</button>
           </div>
-          <p class="setting-help">The log is one Markdown file per day: the to-dos you finished and what you read or tried, and the commit message says what's in it. The repo has to be yours, not an organisation's, and it's created as a private repo if it doesn't exist. In a public repo the log leaves out your to-do titles. Chrome has to be open; if it was closed at that time, the check runs when you open it, until midnight. Commits to a private repo show on your graph only with "Include private contributions" on in your GitHub profile settings.</p>
+          <p class="setting-help">The log is one Markdown file per day: the to-dos you finished and what you read or tried, and the commit message says what's in it. The repo has to be yours, not an organisation's, and it's created as a private repo if it doesn't exist. In a public repo the log leaves out your to-do titles. This check needs Chrome open and the computer awake. For the days it isn't, the Keep my streak workflow in the repo runs the same check on GitHub at 10:47 PM and commits a short check-in, so pick a time before that to get the fuller log. Commits to a private repo show on your graph only with "Include private contributions" on in your GitHub profile settings.</p>
           <p class="setting-help" id="streak-status" aria-live="polite"></p>
         </div>
       </section>
