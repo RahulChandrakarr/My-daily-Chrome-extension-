@@ -25,7 +25,7 @@ import { stackTechs } from './stack.js';
 import { streaks } from './contributions.js';
 import { askJson, aiSource, AiUnavailable } from './ai.js';
 import { openSettings } from './settings.js';
-import { initPractice, renderPractice, renderPracticeReport, practiceNotes, practiceDays, practiceLevelsPassed, exportPractice, PRACTICE_LEVELS } from './practice.js';
+import { initPractice, renderPractice, puzzleStats, commStats, practiceNotes, practiceDays, practiceLevelsPassed, exportPractice } from './practice.js';
 import { explainChoice, renderLesson } from './teach.js';
 import { el, icon, toast, plural } from './ui.js';
 
@@ -38,9 +38,7 @@ const FEEDBACK_KEY = 'quizFeedback';
 const DAILY_SIZE = 20;
 const MAX_RETRIES = 4; // wrong answers that come back in one daily quiz
 const RETRY_AFTER_DAYS = 7;
-const LEVEL_COUNT = 40;
-const LEVEL_SIZE = 25;
-const LEVELS_AT_START = 4;
+const LEVEL_SIZE = 20;
 const PASS_MARK = 0.7;
 
 const $ = (id) => document.getElementById(id);
@@ -124,8 +122,8 @@ function render() {
     daily: renderDaily,
     levels: renderLevels,
     profile: renderProfile,
-    puzzles: () => renderPractice('puzzle', { open: practiceOpen() }),
-    comm: () => renderPractice('comm', { open: practiceOpen() }),
+    puzzles: () => renderPractice('puzzle'),
+    comm: () => renderPractice('comm'),
   };
   body.dataset.view = view; // colours the cards by area, see the Questions CSS
   body.replaceChildren((views[view] || renderDaily)());
@@ -234,62 +232,119 @@ function dailyTopics() {
 }
 
 // --- Levels ---------------------------------------------------------------------------
+// One ladder per skill. Ten levels are open to begin with; from the fifth
+// level you pass, every level you pass opens one more, so the ladder grows
+// with you rather than with the calendar. A level's 20 questions are written
+// the first time you open it and kept, so they're never written twice.
 
-function levelsOpen() {
-  const start = resume?.savedAt ? dateKey(new Date(resume.savedAt)) : (levels.startedOn || dateKey());
-  return Math.min(LEVEL_COUNT, LEVELS_AT_START + Math.max(0, daysBetween(start, dateKey())));
+export const LEVEL_START = 10;
+export const LEVEL_UNLOCK_AFTER = 5;
+
+export function openLevelCount(passed) {
+  return LEVEL_START + Math.max(0, passed - (LEVEL_UNLOCK_AFTER - 1));
 }
 
-// Puzzle and communication levels open on the same clock.
-function practiceOpen() {
-  if (!levels.startedOn) {
-    levels.startedOn = dateKey();
-    save(LEVELS_KEY, levels);
-  }
-  return Math.min(PRACTICE_LEVELS, levelsOpen());
+function passedLevels(topicId) {
+  return Object.values(levelsFor(topicId)).filter((l) => l?.best && l.best.total && l.best.correct / l.best.total >= PASS_MARK).length;
 }
 
 function renderLevels() {
   const wrap = el('div', 'q-stack');
   const all = topics();
   levelTopic = all.find((t) => t.id === levelTopic)?.id || all[0]?.id || null;
-  if (!levels.startedOn) {
-    levels.startedOn = dateKey();
-    save(LEVELS_KEY, levels);
-  }
-  const open = levelsOpen();
-  const chips = el('div', 'learn-tabs q-topics', { role: 'group', 'aria-label': 'Topics' });
+
+  // Your skills as tabs, with a box to add one.
+  const chips = el('div', 'learn-tabs q-topics', { role: 'tablist', 'aria-label': 'Skills' });
   all.forEach((t) => {
-    const stats = levelsFor(t.id);
-    const passed = Object.values(stats).filter((l) => l.best && l.best.correct / l.best.total >= PASS_MARK).length;
-    const chip = el('button', 'learn-tab', { type: 'button', 'aria-pressed': String(t.id === levelTopic), text: passed ? `${t.name} · ${passed}` : t.name });
+    const passed = passedLevels(t.id);
+    const chip = el('button', 'learn-tab', { type: 'button', role: 'tab', 'aria-selected': String(t.id === levelTopic), text: passed ? `${t.name} · ${passed}` : t.name });
     chip.addEventListener('click', () => { levelTopic = t.id; render(); });
     chips.append(chip);
   });
+  const addForm = el('form', 'q-add-skill');
+  const input = el('input', 'field', { type: 'text', placeholder: 'Add a skill, like HTML', 'aria-label': 'Add a skill', maxlength: '60', autocomplete: 'off' });
+  addForm.append(input, button('Add', 'btn btn--small', () => {}));
+  addForm.querySelector('button').type = 'submit';
+  addForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    addSkill(input.value);
+    input.value = '';
+  });
+  chips.append(addForm);
   wrap.append(chips);
+
   if (!levelTopic) {
-    wrap.append(card('', el('p', 'empty', { text: 'Upload your resume to get topics.' })));
+    wrap.append(card('', el('p', 'empty', { text: 'Add a skill above, or upload your resume, to get a ladder of levels.' })));
     return wrap;
   }
+
+  const topic = all.find((t) => t.id === levelTopic);
   const stats = levelsFor(levelTopic);
+  const passed = passedLevels(levelTopic);
+  const open = openLevelCount(passed);
   const grid = el('div', 'q-levels');
-  for (let n = 1; n <= LEVEL_COUNT; n += 1) {
+  for (let n = 1; n <= open + 1; n += 1) {
     const info = stats[n];
     const best = info?.best;
-    const passed = best && best.correct / best.total >= PASS_MARK;
+    const done = best && best.total && best.correct / best.total >= PASS_MARK;
     const locked = n > open;
-    const tile = el('button', `q-level${locked ? ' is-locked' : ''}${passed ? ' is-passed' : ''}${best && !passed ? ' is-tried' : ''}`, {
+    const toUnlock = Math.max(1, LEVEL_UNLOCK_AFTER - passed);
+    const tile = el('button', `q-level${locked ? ' is-locked' : ''}${done ? ' is-passed' : ''}${best && !done ? ' is-tried' : ''}`, {
       type: 'button',
       disabled: locked || busy,
-      title: locked ? `Opens in ${plural(n - open, 'day')}` : best ? `Best ${best.correct} of ${best.total}` : 'Not tried yet',
+      title: locked ? `Opens when you pass ${plural(toUnlock, 'more level')}` : best ? `Best ${best.correct} of ${best.total}` : 'Not tried yet',
     });
-    tile.append(el('span', 'q-level-number', { text: String(n) }), el('span', 'q-level-note', { text: locked ? '🔒' : passed ? `${percent(best.correct, best.total)}%` : best ? `${percent(best.correct, best.total)}%` : levelLabel(n) }));
+    tile.append(
+      el('span', 'q-level-number', { text: String(n) }),
+      el('span', 'q-level-note', { text: locked ? '🔒' : best ? `${percent(best.correct, best.total)}%` : levelLabel(n) }),
+    );
     if (!locked) tile.addEventListener('click', () => startLevel(levelTopic, n));
     grid.append(tile);
   }
-  wrap.append(card(`${topicName(levelTopic)}: ${open} of ${LEVEL_COUNT} levels open, one more each day`, grid,
-    el('p', 'q-hint', { text: `Each level has ${LEVEL_SIZE} questions and gets harder. ${Math.round(PASS_MARK * 100)}% passes a level; you can retake any level.${busy ? ' Writing the level\'s questions…' : ''}` })));
+  const remove = button('Remove skill', 'btn--ghost btn--small q-remove-skill', () => removeSkill(levelTopic));
+  const head = el('div', 'q-levels-head');
+  head.append(el('h3', 'work-card-title', { text: `${topic.name}: ${passed} of ${open} levels passed` }), remove);
+  const node = el('section', 'work-card q-card');
+  node.append(head, grid, el('p', 'q-hint', {
+    text: `Each level has ${LEVEL_SIZE} questions, written the first time you open it and kept. ${Math.round(PASS_MARK * 100)}% passes a level, and you can retake any level. `
+      + `${LEVEL_START} levels are open to start; from the ${ordinal(LEVEL_UNLOCK_AFTER)} level you pass, every level you pass opens one more.${busy ? ' Writing the level\'s questions…' : ''}`,
+  }));
+  wrap.append(node);
   return wrap;
+}
+
+function ordinal(n) {
+  return `${n}${['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : Math.min(n % 10, 4)] || 'th'}`;
+}
+
+// Adding or removing a skill edits the saved resume topics. Without a
+// resume yet, the built-in list becomes yours to edit.
+async function ensureResumeTopics() {
+  if (resume) return;
+  resume = { source: 'default', name: 'Your profile', title: '', summary: '', topics: topics(), pdf: null, text: null, savedAt: Date.now() };
+}
+
+async function addSkill(text) {
+  const name = String(text || '').replace(/\s+/g, ' ').trim();
+  if (name.length < 2) return;
+  await ensureResumeTopics();
+  const id = slug(name);
+  if (!resume.topics.some((t) => t.id === id)) {
+    resume.topics.push({ id, name, group: 'Added' });
+    await save(RESUME_KEY, resume);
+  }
+  levelTopic = id;
+  render();
+}
+
+async function removeSkill(id) {
+  const topic = topics().find((t) => t.id === id);
+  if (!topic || !confirm(`Remove ${topic.name} from your skills? Its levels and scores are kept if you add it back.`)) return;
+  await ensureResumeTopics();
+  resume.topics = resume.topics.filter((t) => t.id !== id);
+  await save(RESUME_KEY, resume);
+  levelTopic = null;
+  render();
 }
 
 function levelsFor(topicId) {
@@ -297,20 +352,20 @@ function levelsFor(topicId) {
 }
 
 function levelLabel(n) {
-  if (n <= 8) return 'basics';
-  if (n <= 16) return 'junior';
-  if (n <= 24) return 'mid';
-  if (n <= 32) return 'senior';
+  if (n <= 3) return 'basics';
+  if (n <= 7) return 'junior';
+  if (n <= 12) return 'mid';
+  if (n <= 18) return 'senior';
   return 'expert';
 }
 
 function levelDifficulty(n) {
-  const band = n <= 8 ? 'fundamentals and definitions a beginner should know'
-    : n <= 16 ? 'junior developer questions: everyday usage, common mistakes, reading small snippets'
-      : n <= 24 ? 'mid-level questions: how things work underneath, trade-offs, debugging, a few code-reading questions'
-        : n <= 32 ? 'senior questions: design decisions, performance, security, edge cases, comparing approaches'
+  const band = n <= 3 ? 'fundamentals and definitions a beginner should know'
+    : n <= 7 ? 'junior developer questions: everyday usage, common mistakes, reading small snippets'
+      : n <= 12 ? 'mid-level questions: how things work underneath, trade-offs, debugging, a few code-reading questions'
+        : n <= 18 ? 'senior questions: design decisions, performance, security, edge cases, comparing approaches'
           : 'expert questions: internals, scaling, failure modes, questions a principal engineer would ask';
-  return `level ${n} of ${LEVEL_COUNT}: ${band}. Level ${n} should be noticeably harder than level ${Math.max(1, n - 4)}`;
+  return `level ${n}: ${band}. Level ${n} should be noticeably harder than level ${Math.max(1, n - 3)}`;
 }
 
 async function startLevel(topicId, n) {
@@ -604,172 +659,351 @@ function renderResult(session, note = '') {
 // --- Report ---------------------------------------------------------------------------
 
 // --- Profile ---------------------------------------------------------------------------
+// One page in two columns. Across the top: who you are and five all-time
+// figures. Left: practice progress for a range, accuracy by topic and your
+// work from GitHub. Right: today's feedback, the stack you ship with and
+// your skills from the resume.
 
-// One page: who you are (from the resume), how you're doing (the report for
-// today, this week or this month) and what to do about it (today's feedback).
+const RANGES = { day: ['Today', 0], week: ['This week', 6], month: ['This month', 29] };
+const GROUP_ORDER = ['Languages', 'Frontend', 'Backend', 'Databases', 'Cloud & DevOps', 'AI', 'Mobile', 'Practices', 'Design', 'Other'];
+
 function renderProfile() {
-  const wrap = el('div', 'q-stack');
-  wrap.append(renderProfileHead());
-  // Report cards are knowledge-coloured unless they set their own area
-  // (the problem-solving and communication cards do); feedback is coaching.
-  [...renderReport().childNodes].forEach((node) => { if (node.dataset && !node.dataset.area) node.dataset.area = 'know'; wrap.append(node); });
-  [...renderFeedback().childNodes].forEach((node) => { if (node.dataset) node.dataset.area = 'coach'; wrap.append(node); });
-  return wrap;
+  const page = el('div', 'pf');
+  page.append(renderHero());
+  const grid = el('div', 'pf-grid');
+  const main = el('div', 'pf-col');
+  main.append(renderProgressCard(), renderAccuracyCard(), renderWorkCard());
+  const side = el('div', 'pf-col');
+  side.append(renderFeedbackCard(), renderStackCard(), renderSkillsCard());
+  grid.append(main, side);
+  page.append(grid);
+  return page;
 }
 
-function renderProfileHead() {
-  const head = el('div', 'q-profile');
-  const settingsName = resume?.name || '';
-  const name = settingsName || 'Your profile';
-  const top = el('div', 'q-profile-top');
-  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
-  top.append(el('div', 'q-avatar', { text: initials, 'aria-hidden': 'true' }));
-  const who = el('div', 'q-profile-who');
-  who.append(el('h3', 'q-profile-name', { text: name }));
-  who.append(el('p', 'q-profile-sub', {
-    text: resume
-      ? `${plural(resume.topics.length, 'topic')} from ${resume.pdf ? resume.pdf.name : 'your resume'}, read ${new Date(resume.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}.`
-      : 'Upload your resume and the questions, levels and feedback are built around your own work.',
-  }));
-  top.append(who);
-  top.append(button(resume ? 'Update resume' : 'Upload resume', 'btn btn--small', openResumeDialog));
-  head.append(top);
+function go(next) {
+  view = next;
+  save('questionsView', view);
+  render();
+}
 
-  // All-time figures.
+function iconButton(name, label, className, onClick, { disabled = false } = {}) {
+  const node = el('button', className, { type: 'button', disabled });
+  node.append(icon(name, 16), el('span', '', { text: label }));
+  node.addEventListener('click', onClick);
+  return node;
+}
+
+function pfCard(title, subtitle, { aside = null, className = '' } = {}) {
+  const node = el('section', `pf-card ${className}`.trim());
+  const head = el('div', 'pf-card-head');
+  const titles = el('div');
+  titles.append(el('h3', 'pf-card-title', { text: title }));
+  if (subtitle) titles.append(el('p', 'pf-card-sub', { text: subtitle }));
+  head.append(titles);
+  if (aside) head.append(aside);
+  node.append(head);
+  return node;
+}
+
+// --- Hero
+
+function renderHero() {
+  const hero = el('section', 'pf-hero');
+  const top = el('div', 'pf-hero-top');
+  const name = resume?.name || 'Your profile';
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+  top.append(el('div', 'pf-avatar', { text: initials, 'aria-hidden': 'true' }));
+  const who = el('div', 'pf-who');
+  who.append(el('h3', 'pf-name', { text: name }));
+  const meta = el('p', 'pf-meta');
+  const bits = [
+    resume?.title || 'Developer',
+    `${plural(topics().length, 'topic')} from ${resume ? 'your resume' : 'the built-in resume'}`,
+    resume ? `Resume read ${new Date(resume.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'Upload yours to make it personal',
+  ];
+  bits.forEach((text, i) => {
+    if (i) meta.append(el('span', 'pf-sep', { 'aria-hidden': 'true' }));
+    meta.append(el('span', '', { text }));
+  });
+  who.append(meta);
+  top.append(who);
+
+  const actions = el('div', 'pf-actions');
+  actions.append(iconButton('upload', resume ? 'Update resume' : 'Upload resume', 'btn', openResumeDialog));
+  const todays = sessions.find((s) => s.kind === 'daily' && s.day === dateKey());
+  const label = todays?.finishedAt ? 'See today\'s result' : todays ? 'Continue today\'s quiz' : 'Start today\'s quiz';
+  actions.append(iconButton('play', label, 'btn btn--primary pf-cta', () => {
+    if (todays && !todays.finishedAt) activeSessionId = todays.id;
+    go('daily');
+    if (!todays) startDaily();
+  }, { disabled: busy }));
+  top.append(actions);
+  hero.append(top);
+
   const days = practiceDaysAll();
   const answered = bank.reduce((n, q) => n + q.asks.length, 0);
   const right = bank.reduce((n, q) => n + q.asks.filter((a) => a.correct).length, 0);
-  const levelsPassed = quizLevelsPassed() + practiceLevelsPassed();
-  const tiles = el('div', 'q-profile-stats');
+  const figures = el('div', 'pf-figures');
   [
-    [String(streakOf(days)), 'day streak'],
-    [String(days.size), 'days practised'],
-    [String(answered), 'questions answered'],
-    [answered ? `${percent(right, answered)}%` : '–', 'right all-time'],
-    [String(levelsPassed), 'levels passed'],
-  ].forEach(([v, l]) => {
-    const t = el('div', 'q-stat-tile');
-    t.append(el('b', '', { text: v }), el('span', '', { text: l }));
-    tiles.append(t);
+    ['Day streak', String(streakOf(days)), 'days'],
+    ['Days practised', String(days.size), ''],
+    ['Questions answered', String(answered), ''],
+    ['Accuracy', answered ? `${percent(right, answered)}%` : '–', 'all-time'],
+    ['Levels passed', String(quizLevelsPassed() + practiceLevelsPassed()), ''],
+  ].forEach(([label, value, unit]) => {
+    const cell = el('div', 'pf-figure');
+    const big = el('p', 'pf-figure-value');
+    big.append(el('b', '', { text: value }));
+    if (unit) big.append(el('span', '', { text: ` ${unit}` }));
+    cell.append(el('span', 'pf-label', { text: label }), big);
+    figures.append(cell);
   });
-  head.append(tiles);
-  head.append(renderWorkSummary());
-
-  if (resume?.summary) {
-    const about = el('details', 'q-solution');
-    about.append(el('summary', '', { text: 'About me, from the resume' }), el('p', 'q-explanation', { text: resume.summary }));
-    head.append(about);
-  }
-
-  // Topics, grouped as the resume reader grouped them.
-  const groups = new Map();
-  topics().forEach((t) => groups.set(t.group || 'Skills', [...(groups.get(t.group || 'Skills') || []), t]));
-  const accuracy = new Map(topicStats(3650).map((t) => [t.id, t]));
-  const list = el('div', 'q-profile-groups');
-  [...groups.entries()].forEach(([group, items]) => {
-    const row = el('div', 'q-profile-group');
-    row.append(el('b', '', { text: group }));
-    items.forEach((t) => {
-      const stat = accuracy.get(t.id);
-      // A chip with a small accuracy bar under the name once the topic has been asked.
-      const chip = el('span', `chip q-topic-chip${stat ? (stat.accuracy >= PASS_MARK ? ' is-strong' : stat.total >= 3 ? ' is-weak' : ' is-mid') : ''}`, {
-        title: stat ? `${stat.correct} of ${stat.total} right` : 'Not asked yet',
-      });
-      chip.append(el('span', 'q-topic-chip-name', { text: t.name }));
-      if (stat) {
-        chip.append(el('span', 'q-topic-chip-pct', { text: `${Math.round(stat.accuracy * 100)}%` }));
-        const bar = el('span', 'q-topic-chip-bar');
-        const fill = el('span');
-        fill.style.width = `${Math.round(stat.accuracy * 100)}%`;
-        bar.append(fill);
-        chip.append(bar);
-      }
-      row.append(chip);
-    });
-    list.append(row);
-  });
-  head.append(list);
-  const hero = card('', head);
-  hero.classList.add('q-hero');
+  hero.append(figures);
   return hero;
 }
 
-// Your work, summarised: what you're on now, the last 30 days in figures,
-// your GitHub contributions and the tools you use. Figures and a few lines,
-// never the commit list; that's the Work tab's job.
-const work = { log: null, calendar: null, stack: null, notes: null, tasks: null, learning: null };
+// --- Practice progress
 
-function renderWorkSummary() {
-  const box = el('div', 'q-work');
+function renderProgressCard() {
+  const picker = el('div', 'segmented pf-range', { role: 'group', 'aria-label': 'Range' });
+  Object.entries(RANGES).forEach(([key, [label]]) => {
+    const b = el('button', '', { type: 'button', 'aria-pressed': String(key === reportRange), text: label });
+    b.addEventListener('click', () => { reportRange = key; render(); });
+    picker.append(b);
+  });
+  const node = pfCard('Practice progress', 'Knowledge, problem solving and communication', { aside: picker });
+  const days = RANGES[reportRange][1];
+
+  const done = sessionsIn(days);
+  const answered = done.reduce((n, s) => n + Object.keys(s.answers).length, 0);
+  const correct = done.reduce((n, s) => n + s.score.correct, 0);
+  const quizLevels = done.filter((s) => s.kind === 'level' && s.score.total && s.score.correct / s.score.total >= PASS_MARK).length;
+  const p = puzzleStats(days);
+  const c = commStats(days);
+
+  const row = el('div', 'pf-minis');
+  row.append(miniCard('know', 'book', 'Knowledge',
+    [[String(done.length), 'quizzes taken'], [String(answered), 'questions answered'], [`${percent(correct, answered)}%`, 'right'], [String(quizLevels), 'levels passed']],
+    done.length ? '' : 'Nothing yet in this range', 'Take quiz', () => go('daily')));
+  row.append(miniCard('solve', 'spark', 'Problem solving',
+    [[String(p.tried), 'puzzles tried'], [String(p.solved), 'solved'], [String(p.firstTry), 'on the first try'], [String(p.levelsPassed), 'levels passed']],
+    p.tried ? '' : 'No puzzles yet', 'Try a puzzle', () => go('puzzles')));
+  const speak = c.bySkill.find((s) => s.skill === 'speak');
+  row.append(miniCard('talk', 'chat', 'Communication',
+    [[String(c.attempts), 'tasks done'], [c.average == null ? '—' : String(c.average), 'average score'], [String(c.levelsPassed), 'levels passed'], speak?.fillerRate != null ? [`${speak.fillerRate}%`, 'filler words'] : null].filter(Boolean),
+    c.attempts ? (c.bySkill.length > 1 ? c.bySkill.map((s) => `${s.name} ${s.average}`).join(' · ') : '') : 'No tasks yet', 'Start a task', () => go('comm')));
+  node.append(row);
+  return node;
+}
+
+function miniCard(area, iconName, title, stats, note, linkLabel, onClick) {
+  const node = el('div', 'pf-mini', { 'data-area': area });
+  const head = el('div', 'pf-mini-head');
+  const badge = el('span', 'pf-mini-icon');
+  badge.append(icon(iconName, 16));
+  head.append(badge, el('h4', '', { text: title }));
+  node.append(head);
+  const grid = el('div', 'pf-mini-stats');
+  stats.forEach(([value, label]) => {
+    const s = el('div', 'pf-mini-stat');
+    s.append(el('b', '', { text: value }), el('span', '', { text: label }));
+    grid.append(s);
+  });
+  node.append(grid);
+  const foot = el('div', 'pf-mini-foot');
+  if (note) foot.append(el('span', 'pf-mini-note', { text: note }));
+  const link = el('button', 'pf-link', { type: 'button', text: `${linkLabel} →` });
+  link.addEventListener('click', onClick);
+  foot.append(link);
+  node.append(foot);
+  return node;
+}
+
+// --- Accuracy by topic
+
+function renderAccuracyCard() {
+  const legend = el('div', 'pf-legend');
+  [['bad', 'Needs work'], ['mid', 'Improving'], ['good', 'Strong']].forEach(([cls, text]) => {
+    const item = el('span', `pf-legend-item is-${cls}`);
+    item.append(el('i', 'pf-swatch', { 'aria-hidden': 'true' }), document.createTextNode(text));
+    legend.append(item);
+  });
+  const node = pfCard('Accuracy by topic', 'Weakest first · all-time answers', { aside: legend });
+  const stats = topicStats(3650);
+  if (!stats.length) {
+    node.append(el('p', 'pf-empty', { text: 'Take a quiz and your topics show here, weakest first.' }));
+    return node;
+  }
+  const list = el('div', 'pf-rows');
+  stats.forEach((t, i) => {
+    const row = el('div', 'pf-row');
+    const name = el('span', 'pf-row-name');
+    name.append(el('span', '', { text: t.name }));
+    if (i === 0 && t.accuracy < PASS_MARK) name.append(el('span', 'pf-focus', { text: 'Focus' }));
+    const cls = t.accuracy >= PASS_MARK ? 'good' : t.accuracy >= 0.5 ? 'mid' : 'bad';
+    const bar = el('div', 'pf-bar');
+    const fill = el('span', `is-${cls}`);
+    fill.style.width = `${Math.round(t.accuracy * 100)}%`;
+    bar.append(fill);
+    const value = el('span', `pf-row-value is-${cls}`);
+    value.append(el('b', '', { text: `${Math.round(t.accuracy * 100)}%` }), document.createTextNode(` · ${t.correct}/${t.total}`));
+    row.append(name, bar, value);
+    list.append(row);
+  });
+  node.append(list);
+  return node;
+}
+
+// --- Working on now
+
+function renderWorkCard() {
   const today = dateKey();
   const since = (days) => addDays(today, -days);
   const log = (work.log || []).filter((r) => r.id >= since(29));
-  const week = log.filter((r) => r.id >= since(6));
-  const notes = (work.notes || []).filter((n) => !n.deleted);
-
-  // Now: the projects pushed to or noted in the last 7 days.
-  const projects = new Map();
-  week.forEach((r) => r.repos.forEach((repo) => {
-    const p = projects.get(repo.repo) || { name: repo.repo, commits: 0, areas: new Set(), notes: 0, last: '' };
-    p.commits += repo.count;
-    repo.areas?.forEach((a) => p.areas.add(a));
-    if (r.id > p.last) p.last = r.id;
-    projects.set(repo.repo, p);
-  }));
-  notes.filter((n) => n.day >= since(6)).forEach((n) => {
-    const key = n.project.split('/').pop();
-    const p = projects.get(key) || { name: key, commits: 0, areas: new Set(), notes: 0, last: '' };
-    p.notes += 1;
-    if (n.day > p.last) p.last = n.day;
-    projects.set(key, p);
-  });
-  const now = [...projects.values()].sort((a, b) => b.commits - a.commits || b.last.localeCompare(a.last)).slice(0, 5);
-  const nowCard = el('div', 'q-work-block');
-  nowCard.append(el('b', '', { text: 'Working on now' }));
-  if (now.length) {
-    const list = el('ul', 'q-ul q-work-list');
-    now.forEach((p) => {
-      const bits = [p.commits ? plural(p.commits, 'commit') : null, p.areas.size ? `in ${[...p.areas].slice(0, 3).join(', ')}` : null, p.notes ? plural(p.notes, 'note') : null].filter(Boolean);
-      const li = el('li');
-      li.append(el('b', '', { text: p.name }), document.createTextNode(bits.length ? ` · ${bits.join(', ')}` : ''));
-      list.append(li);
-    });
-    nowCard.append(list);
-  } else {
-    nowCard.append(el('p', 'q-hint', { text: (work.log || []).length ? 'Nothing pushed or noted in the last 7 days.' : 'Connect GitHub in Settings and this fills in from the repos you push to.' }));
+  const calendar = work.calendar;
+  const pill = calendar?.days?.length
+    ? el('span', 'pf-pill', { text: `${calendar.total.toLocaleString()} contributions this year · on ${plural(streaks(calendar.days).activeDays, 'day')}` })
+    : null;
+  const node = pfCard('Working on now', 'From your GitHub · last 30 days', { aside: pill });
+  if (!(work.log || []).length && !calendar) {
+    const empty = el('div', 'pf-empty-block');
+    empty.append(el('p', 'pf-empty', { text: 'Connect GitHub and this fills in from the repos you push to: commits, projects, pull requests and your contribution streak.' }));
+    empty.append(button('Connect GitHub', 'btn btn--small', () => openSettings('github-section')));
+    node.append(empty);
+    return node;
   }
-  box.append(nowCard);
 
-  // Last 30 days, in figures.
   const sum = (field) => log.reduce((n, r) => n + (r.stats?.[field] || 0), 0);
-  const repos = new Set(log.flatMap((r) => r.repos.map((x) => x.repo)));
+  const repoMap = new Map();
+  log.forEach((r) => r.repos.forEach((repo) => {
+    const p = repoMap.get(repo.repo) || { name: repo.repo, commits: 0, areas: new Map() };
+    p.commits += repo.count;
+    repo.areas?.forEach((a) => p.areas.set(a, (p.areas.get(a) || 0) + 1));
+    repoMap.set(repo.repo, p);
+  }));
   const doneTasks = (work.tasks || []).filter((t) => t.done && !t.deleted && t.doneAt && dateKey(new Date(t.doneAt)) >= since(29)).length;
-  const learned = (work.learning || []).filter((e) => Math.max(e.readAt || 0, e.doneAt || 0) && dateKey(new Date(Math.max(e.readAt || 0, e.doneAt || 0))) >= since(29)).length;
-  const tiles = el('div', 'q-profile-stats q-work-stats');
+  const learned = (work.learning || []).filter((e) => {
+    const at = Math.max(e.readAt || 0, e.doneAt || 0);
+    return at && dateKey(new Date(at)) >= since(29);
+  }).length;
+  const tiles = el('div', 'pf-tiles');
   [
-    [String(sum('commits')), 'commits, 30 days'],
+    [String(sum('commits')), 'commits'],
     [String(log.filter((r) => r.stats?.commits).length), 'days with a push'],
-    [String(repos.size), 'projects touched'],
+    [String(repoMap.size), 'projects touched'],
     [String(sum('opened') + sum('merged') + sum('reviewed')), 'pull requests'],
     [String(doneTasks), 'to-dos done'],
     [String(learned), 'things read or tried'],
   ].forEach(([v, l]) => {
-    const t = el('div', 'q-stat-tile q-stat-tile--small');
+    const t = el('div', 'pf-tile');
     t.append(el('b', '', { text: v }), el('span', '', { text: l }));
     tiles.append(t);
   });
-  box.append(tiles);
+  node.append(tiles);
 
-  // Contributions and tools, one line each.
-  const lines = el('div', 'q-work-lines');
-  if (work.calendar?.days?.length) {
-    const s = streaks(work.calendar.days);
-    lines.append(el('p', '', { text: `GitHub: ${work.calendar.total.toLocaleString()} contributions in the last year on ${plural(s.activeDays, 'day')}; ${s.current ? `${plural(s.current, 'day')} streak now` : 'no streak at the moment'}, longest ${plural(s.longest, 'day')}.` }));
+  const repos = [...repoMap.values()].sort((a, b) => b.commits - a.commits).slice(0, 3);
+  if (repos.length) {
+    node.append(el('span', 'pf-label', { text: 'Most active repos' }));
+    const list = el('div', 'pf-repos');
+    const max = repos[0].commits || 1;
+    repos.forEach((p) => {
+      const item = el('div', 'pf-repo');
+      const head = el('div', 'pf-repo-head');
+      const name = el('span', 'pf-repo-name');
+      name.append(icon('folder', 15), el('b', '', { text: p.name }));
+      head.append(name, el('span', 'pf-repo-count', { text: plural(p.commits, 'commit') }));
+      const bar = el('div', 'pf-bar pf-bar--repo');
+      const fill = el('span');
+      fill.style.width = `${Math.round((p.commits / max) * 100)}%`;
+      bar.append(fill);
+      item.append(head, bar);
+      const areas = [...p.areas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a);
+      if (areas.length) {
+        const chips = el('div', 'pf-areas');
+        areas.forEach((a) => chips.append(el('code', 'pf-area', { text: a })));
+        item.append(chips);
+      }
+      list.append(item);
+    });
+    node.append(list);
   }
-  const techs = stackTechs(work.stack, 10);
-  if (techs.length) lines.append(el('p', '', { text: `Tools in the repos you push to: ${techs.map((t) => t.name).join(', ')}.` }));
-  if (lines.childNodes.length) box.append(lines);
-  return box;
+
+  if (calendar?.days?.length) {
+    const s = streaks(calendar.days);
+    const foot = el('p', 'pf-streak');
+    foot.append(icon('flame', 15));
+    foot.append(el('b', '', { text: s.current ? `${s.current}-day` : 'No' }), document.createTextNode(` push streak${s.current ? '' : ' right now'} · longest ${plural(s.longest, 'day')}`));
+    node.append(foot);
+  }
+  return node;
+}
+
+// --- Stack and skills
+
+function renderStackCard() {
+  const node = pfCard('Stack you ship with', 'Tools found in the repos you push to');
+  const techs = stackTechs(work.stack, 12);
+  if (!techs.length) {
+    node.append(el('p', 'pf-empty', { text: 'Connect GitHub to see your stack.' }));
+    return node;
+  }
+  const chips = el('div', 'pf-chips');
+  techs.forEach((t) => chips.append(el('span', 'pf-chip is-stack', { text: t.name })));
+  node.append(chips);
+  return node;
+}
+
+function renderSkillsCard() {
+  const legend = el('span', 'pf-legend-item is-good pf-tested');
+  legend.append(el('i', 'pf-swatch', { 'aria-hidden': 'true' }), document.createTextNode('Tested'));
+  const node = pfCard('Skills', `${plural(topics().length, 'topic')} from ${resume ? 'your resume' : 'the built-in resume'}`, { aside: legend });
+  const accuracy = new Map(topicStats(3650).map((t) => [t.id, t]));
+  const groups = new Map();
+  topics().forEach((t) => {
+    const g = t.group || 'Other';
+    groups.set(g, [...(groups.get(g) || []), t]);
+  });
+  const ordered = [...groups.entries()].sort(([a], [b]) => {
+    const ia = GROUP_ORDER.indexOf(a);
+    const ib = GROUP_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+  ordered.forEach(([group, items]) => {
+    node.append(el('span', 'pf-label', { text: group }));
+    const chips = el('div', 'pf-chips');
+    items.forEach((t) => {
+      const stat = accuracy.get(t.id);
+      const cls = !stat ? '' : stat.accuracy >= PASS_MARK ? ' is-good' : stat.accuracy >= 0.5 ? ' is-mid' : ' is-bad';
+      const chip = el('span', `pf-chip${cls}`, { title: stat ? `${stat.correct} of ${stat.total} right` : 'Not tested yet' });
+      chip.append(el('span', '', { text: t.name }));
+      if (stat) chip.append(el('b', '', { text: `${Math.round(stat.accuracy * 100)}%` }));
+      chips.append(chip);
+    });
+    node.append(chips);
+  });
+  return node;
+}
+
+// --- Shared figures
+
+function sessionsIn(days) {
+  const from = addDays(dateKey(), -days);
+  return sessions.filter((s) => s.finishedAt && s.day >= from);
+}
+
+// Per-topic accuracy over the last N days, weakest first.
+function topicStats(days) {
+  const from = addDays(dateKey(), -days);
+  const byTopic = new Map();
+  bank.forEach((q) => {
+    q.asks.filter((a) => a.day >= from).forEach((a) => {
+      const t = byTopic.get(q.topic) || { id: q.topic, name: q.topicName, total: 0, correct: 0 };
+      t.total += 1;
+      if (a.correct) t.correct += 1;
+      byTopic.set(q.topic, t);
+    });
+  });
+  return [...byTopic.values()].map((t) => ({ ...t, accuracy: t.correct / t.total })).sort((a, b) => a.accuracy - b.accuracy || b.total - a.total);
 }
 
 function quizLevelsPassed() {
@@ -795,90 +1029,8 @@ function streakOf(days) {
   return n;
 }
 
-const RANGES = { day: ['Today', 0], week: ['This week', 6], month: ['This month', 29] };
-
-function sessionsIn(days) {
-  const from = addDays(dateKey(), -days);
-  return sessions.filter((s) => s.finishedAt && s.day >= from);
-}
-
-// Per-topic accuracy over the last N days, weakest first.
-function topicStats(days) {
-  const from = addDays(dateKey(), -days);
-  const byTopic = new Map();
-  bank.forEach((q) => {
-    q.asks.filter((a) => a.day >= from).forEach((a) => {
-      const t = byTopic.get(q.topic) || { id: q.topic, name: q.topicName, total: 0, correct: 0 };
-      t.total += 1;
-      if (a.correct) t.correct += 1;
-      byTopic.set(q.topic, t);
-    });
-  });
-  return [...byTopic.values()].map((t) => ({ ...t, accuracy: t.correct / t.total })).sort((a, b) => a.accuracy - b.accuracy || b.total - a.total);
-}
-
-function renderReport() {
-  const wrap = el('div', 'q-stack');
-  const picker = el('div', 'segmented', { role: 'group', 'aria-label': 'Range' });
-  Object.entries(RANGES).forEach(([key, [label]]) => {
-    const b = el('button', '', { type: 'button', 'aria-pressed': String(key === reportRange), text: label });
-    b.addEventListener('click', () => { reportRange = key; render(); });
-    picker.append(b);
-  });
-  wrap.append(picker);
-
-  const days = RANGES[reportRange][1];
-  const done = sessionsIn(days);
-  const answered = done.reduce((n, s) => n + Object.keys(s.answers).length, 0);
-  const correct = done.reduce((n, s) => n + s.score.correct, 0);
-  const activeDays = new Set(done.map((s) => s.day)).size;
-  const levelsPassed = done.filter((s) => s.kind === 'level' && s.score.correct / s.score.total >= PASS_MARK).length;
-  const stats = el('div', 'q-stats');
-  [[plural(done.length, 'quiz', 'quizzes'), 'taken'], [String(answered), 'questions answered'], [`${percent(correct, answered)}%`, 'right'], [plural(activeDays, 'day'), 'practised'], [String(levelsPassed), 'levels passed']].forEach(([v, l]) => {
-    const node = el('span', 'mini-stat');
-    node.append(el('b', '', { text: v }), document.createTextNode(` ${l}`));
-    stats.append(node);
-  });
-  wrap.append(card(`${RANGES[reportRange][0]}: knowledge`, stats, done.length ? trendLine(done) : el('p', 'q-hint', { text: 'Nothing yet in this range. Take today\'s quiz to start.' })));
-
-  const byTopic = topicStats(days);
-  if (byTopic.length) {
-    const list = el('div', 'q-bars');
-    byTopic.forEach((t) => {
-      const row = el('div', 'q-bar-row');
-      const bar = el('div', 'q-bar');
-      const fill = el('span', `q-bar-fill ${t.accuracy >= PASS_MARK ? 'is-good' : t.accuracy >= 0.5 ? 'is-mid' : 'is-bad'}`);
-      fill.style.width = `${Math.round(t.accuracy * 100)}%`;
-      bar.append(fill);
-      row.append(el('span', 'q-bar-label', { text: t.name }), bar, el('span', 'q-bar-value', { text: `${Math.round(t.accuracy * 100)}% · ${t.correct}/${t.total}` }));
-      list.append(row);
-    });
-    wrap.append(card('By topic, weakest first', list));
-  }
-
-  wrap.append(...renderPracticeReport(days, RANGES[reportRange][0]));
-  return wrap;
-}
-
-// Accuracy per day as small bars, oldest to newest.
-function trendLine(done) {
-  const byDay = new Map();
-  done.forEach((s) => {
-    const d = byDay.get(s.day) || { correct: 0, total: 0 };
-    d.correct += s.score.correct;
-    d.total += Object.keys(s.answers).length;
-    byDay.set(s.day, d);
-  });
-  const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const row = el('div', 'q-trend', { role: 'img', 'aria-label': 'Accuracy by day' });
-  days.forEach(([day, d]) => {
-    const pct = percent(d.correct, d.total);
-    const bar = el('span', `q-trend-bar ${pct >= PASS_MARK * 100 ? 'is-good' : 'is-bad'}`, { title: `${parseKey(day).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}: ${pct}%` });
-    bar.style.height = `${Math.max(8, pct)}%`;
-    row.append(bar);
-  });
-  return row;
-}
+// What the rest of My Daily knows about your work, loaded at start-up.
+const work = { log: null, calendar: null, stack: null, notes: null, tasks: null, learning: null };
 
 // --- Feedback -------------------------------------------------------------------------
 
@@ -899,39 +1051,44 @@ const FEEDBACK_SCHEMA = {
   },
 };
 
-function renderFeedback() {
-  const wrap = el('div', 'q-stack');
-  const today = dateKey();
-  if (feedback?.day === today) {
-    wrap.append(card('Today\'s feedback', el('p', 'q-text', { text: feedback.summary })));
+// The dark card on the right: today's feedback, or the button to write it.
+function renderFeedbackCard() {
+  const node = el('section', 'pf-card pf-feedback');
+  const head = el('div', 'pf-feedback-head');
+  const badge = el('span', 'pf-feedback-icon');
+  badge.append(icon('star', 16));
+  head.append(badge, el('h3', 'pf-card-title', { text: 'Today\'s feedback' }));
+  node.append(head);
+  if (feedback?.day === dateKey()) {
+    node.append(el('p', 'pf-feedback-text', { text: feedback.summary }));
     if (feedback.workOn?.length) {
-      const list = el('div', 'q-points');
+      node.append(el('span', 'pf-label', { text: 'Work on' }));
+      const list = el('div', 'pf-points');
       feedback.workOn.forEach((w) => {
-        const item = el('div', 'q-point');
-        item.append(el('b', '', { text: w.topic }), el('p', '', { text: w.why }), el('p', 'q-hint', { text: w.how }));
+        const item = el('div', 'pf-point');
+        item.append(el('b', '', { text: w.topic }), el('p', '', { text: w.why }), el('p', 'pf-point-how', { text: w.how }));
         list.append(item);
       });
-      wrap.append(card('Work on', list));
+      node.append(list);
     }
     if (feedback.learnNext?.length) {
-      const list = el('div', 'q-points');
+      node.append(el('span', 'pf-label', { text: 'Worth learning next' }));
+      const list = el('div', 'pf-points');
       feedback.learnNext.forEach((w) => {
-        const item = el('div', 'q-point');
+        const item = el('div', 'pf-point');
         item.append(el('b', '', { text: w.name }), el('p', '', { text: w.why }));
         list.append(item);
       });
-      wrap.append(card('Worth learning next', list));
+      node.append(list);
     }
-    wrap.append(el('p', 'q-hint', { text: `Written ${new Date(feedback.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}${feedback.source === 'rules' ? ', from your scores alone: set up AI in Settings for fuller feedback' : ''}.` }));
-    const refresh = button('Write it again', 'btn--ghost btn--small', () => writeFeedback(), { disabled: busy });
-    wrap.append(refresh);
-    return wrap;
+    const when = new Date(feedback.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    node.append(el('p', 'pf-feedback-when', { text: `Written at ${when}${feedback.source === 'rules' ? ' from your scores alone; set up AI in Settings for fuller feedback' : ''}.` }));
+    node.append(button(busy ? 'Writing…' : 'Write it again', 'btn pf-feedback-btn pf-feedback-btn--ghost', () => writeFeedback(), { disabled: busy }));
+    return node;
   }
-  const intro = card('Feedback',
-    el('p', 'q-text', { text: 'Once a day: where you\'re weak, what to work on today and what\'s worth learning next, from your answers, your resume and the tools in the repos you push to.' }),
-    button(busy ? 'Writing…' : 'Write today\'s feedback', 'btn--primary', () => writeFeedback(), { disabled: busy }));
-  wrap.append(intro);
-  return wrap;
+  node.append(el('p', 'pf-feedback-text', { text: 'Once a day: where you\'re weak, what to work on today and what\'s worth learning next, from your answers, your resume and the tools in your repos.' }));
+  node.append(button(busy ? 'Writing…' : 'Write today\'s feedback', 'btn pf-feedback-btn', () => writeFeedback(), { disabled: busy }));
+  return node;
 }
 
 async function writeFeedback() {
@@ -990,9 +1147,10 @@ function feedbackByRules(stats, week) {
 const RESUME_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'summary', 'topics'],
+  required: ['name', 'title', 'summary', 'topics'],
   properties: {
     name: { type: 'string', description: 'the person\'s name as written on the resume' },
+    title: { type: 'string', description: 'their job title in two to four words, e.g. "Full-stack developer"' },
     summary: { type: 'string', description: 'five to eight lines on their experience: years, roles, the main projects and what each was built with, so an interviewer could ask about their actual work' },
     topics: {
       type: 'array',
@@ -1101,6 +1259,7 @@ async function readResume(event, { again = false } = {}) {
     resume = {
       source: pdf ? 'pdf' : 'text',
       name: data.name || pdf?.name || 'your resume',
+      title: String(data.title || '').trim(),
       summary: String(data.summary || '').trim(),
       topics: list,
       pdf: pdf || null,

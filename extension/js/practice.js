@@ -171,8 +171,18 @@ async function ensureLevel(section, n) {
 
 // --- Rendering a section ------------------------------------------------------------------
 
-// `open` is how many levels are open today (from questions.js).
-export function renderPractice(section, { open }) {
+// Ten levels are open to begin with; from the fifth level passed, every
+// level passed opens one more (the same rule as the quiz levels).
+const LEVEL_START = 10;
+const LEVEL_UNLOCK_AFTER = 5;
+
+function openLevels(section) {
+  const passed = Object.keys(SECTIONS[section].data.levels).map(Number).filter((n) => levelPassed(section, n)).length;
+  return { passed, open: LEVEL_START + Math.max(0, passed - (LEVEL_UNLOCK_AFTER - 1)) };
+}
+
+export function renderPractice(section) {
+  const { passed, open } = openLevels(section);
   const def = SECTIONS[section];
   const wrap = el('div', 'q-stack');
   if (openItem?.section === section) {
@@ -198,13 +208,13 @@ export function renderPractice(section, { open }) {
 
   // Levels
   const grid = el('div', 'q-levels');
-  for (let n = 1; n <= PRACTICE_LEVELS; n += 1) {
+  for (let n = 1; n <= open + 1; n += 1) {
     const info = def.data.levels[n];
-    const passed = levelPassed(section, n);
+    const done = levelPassed(section, n);
     const started = info && info.ids.some((id) => attemptsFor(section, id).length);
     const locked = n > open;
-    const tile = el('button', `q-level${locked ? ' is-locked' : ''}${passed ? ' is-passed' : ''}${started && !passed ? ' is-tried' : ''}`, {
-      type: 'button', disabled: locked || busy, title: locked ? `Opens in ${plural(n - open, 'day')}` : passed ? 'Passed' : started ? 'Started' : 'Not tried yet',
+    const tile = el('button', `q-level${locked ? ' is-locked' : ''}${done ? ' is-passed' : ''}${started && !done ? ' is-tried' : ''}`, {
+      type: 'button', disabled: locked || busy, title: locked ? `Opens when you pass ${plural(Math.max(1, LEVEL_UNLOCK_AFTER - passed), 'more level')}` : done ? 'Passed' : started ? 'Started' : 'Not tried yet',
     });
     let note = locked ? '🔒' : bands(section, n).split(':')[0];
     if (info && !locked) {
@@ -216,7 +226,7 @@ export function renderPractice(section, { open }) {
     if (!locked) tile.addEventListener('click', () => run(() => openLevel(section, n)));
     grid.append(tile);
   }
-  wrap.append(card(`Levels: ${open} of ${PRACTICE_LEVELS} open, one more each day`, grid, el('p', 'q-hint', { text: `${def.levelLine}${busy ? ' Writing…' : ''}` })));
+  wrap.append(card(`Levels: ${passed} of ${open} passed`, grid, el('p', 'q-hint', { text: `${def.levelLine} ${LEVEL_START} levels are open to start; from the fifth level you pass, every level you pass opens one more. A level's items are written the first time you open it and kept.${busy ? ' Writing…' : ''}` })));
 
   // A level's items, once opened
   if (openLevelN?.section === section) {
