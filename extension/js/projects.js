@@ -166,7 +166,10 @@ function renderItem(project, s, item) {
   const body = el('div', 'q-question');
   const head = el('div', 'q-quiz-head');
   head.append(el('span', 'q-quiz-title', { text: `${project.name} · Level ${openItem.level}` }));
-  head.append(button('Back', 'btn--ghost btn--small', () => { openItem = null; rerender(); }));
+  const setIds = s.levels[openItem.level]?.ids || [];
+  const index = setIds.indexOf(item.id);
+  if (index >= 0) head.append(el('span', 'q-quiz-progress', { text: `${index + 1} / ${setIds.length}` }));
+  head.append(button('Back to level', 'btn--ghost btn--small', () => { openItem = null; rerender(); }));
   body.append(head);
   body.append(el('span', 'q-topic-tag', { text: item.kind }));
   body.append(el('p', 'q-question-text', { text: item.prompt }));
@@ -218,6 +221,13 @@ function renderItem(project, s, item) {
       if (last.facts?.length) mark.append(el('p', 'q-hint', { text: `Remembered: ${last.facts.join(' · ')}` }));
     }
     body.append(mark);
+  }
+  if (index >= 0) {
+    const nav = el('div', 'q-actions q-nav');
+    const nextId = setIds[index + 1];
+    if (nextId) nav.append(button(last ? 'Next question →' : 'Skip for now →', last ? 'btn--primary' : 'btn--ghost', () => { openItem = { ...openItem, id: nextId }; rerender(); }));
+    else if (last) nav.append(button('Finish level', 'btn--primary', () => { openItem = null; rerender(); }));
+    if (nav.childNodes.length) body.append(nav);
   }
   return card('', body);
 }

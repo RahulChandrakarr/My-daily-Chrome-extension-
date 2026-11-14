@@ -280,8 +280,13 @@ async function run(job) {
 function renderItem(section, item) {
   const body = el('div', 'q-question');
   const head = el('div', 'q-quiz-head');
+  // Where this task sits in its set (today's set or a level), for "2 / 5" and Next.
+  const def = SECTIONS[section];
+  const setIds = openItem.mode === 'level' ? (def.data.levels[openItem.level]?.ids || []) : (todaysIds(section) || []);
+  const index = setIds.indexOf(item.id);
   head.append(el('span', 'q-quiz-title', { text: item.title }));
-  head.append(button('Back', 'btn--ghost btn--small', () => { stopRecording(); openItem = null; rerender(); }));
+  if (index >= 0) head.append(el('span', 'q-quiz-progress', { text: `${index + 1} / ${setIds.length}` }));
+  head.append(button('Back to list', 'btn--ghost btn--small', () => { stopRecording(); openItem = null; rerender(); }));
   body.append(head);
   body.append(el('span', 'q-topic-tag', { text: section === 'puzzle' ? item.kind : SKILL_NAMES[item.skill] || item.skill }));
   body.append(el('p', 'q-question-text', { text: item.prompt }));
@@ -299,6 +304,15 @@ function renderItem(section, item) {
     body.append(renderWritten(section, item, last));
   }
   if (last) body.append(renderMark(section, item, last));
+  // On to the next task in the set; after the last one, back to the list with the level's result.
+  if (index >= 0) {
+    const nav = el('div', 'q-actions q-nav');
+    const nextId = setIds[index + 1];
+    const goTo = (id) => { stopRecording(); openItem = id ? { ...openItem, id } : null; rerender(); };
+    if (nextId) nav.append(button(last ? 'Next question →' : 'Skip for now →', last ? 'btn--primary' : 'btn--ghost', () => goTo(nextId)));
+    else if (last) nav.append(button(openItem.mode === 'level' ? 'Finish level' : 'Finish today\'s set', 'btn--primary', () => goTo(null)));
+    if (nav.childNodes.length) body.append(nav);
+  }
   if (isDone && item.solution && item.skill !== 'grammar') {
     const details = el('details', 'q-solution');
     details.append(el('summary', '', { text: section === 'puzzle' ? 'A good solution' : 'A strong answer' }), el('p', 'q-explanation', { text: item.solution }));
