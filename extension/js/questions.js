@@ -49,7 +49,11 @@ let sessions = []; // finished and in-progress quizzes
 let levels = {}; // { topicId: { [level]: { questionIds, generatedAt, best } } }
 let feedback = null; // { day, summary, workOn: [], learnNext: [] }
 let view = 'daily'; // daily | levels | report | feedback
-let activeSession = null; // the quiz being taken
+// The quiz being taken, by id. Storage changes (including this tab's own
+// saves) replace `sessions` with a fresh copy, so holding the object itself
+// would leave the quiz writing to a session that's no longer saved.
+let activeSessionId = null;
+const activeSession = () => (activeSessionId ? sessions.find((s) => s.id === activeSessionId) || null : null);
 let levelTopic = null;
 let reportRange = 'week';
 let busy = false;
@@ -60,7 +64,7 @@ export async function initQuestions() {
   [resume, bank, sessions, levels, feedback] = await Promise.all([
     load(RESUME_KEY, null), load(BANK_KEY, []), load(SESSIONS_KEY, []), load(LEVELS_KEY, {}), load(FEEDBACK_KEY, null),
   ]);
-  activeSession = sessions.find((s) => !s.finishedAt && s.day === dateKey()) || null;
+  activeSessionId = sessions.find((s) => !s.finishedAt && s.day === dateKey())?.id || null;
   view = await load('questionsView', 'daily');
   await initPractice({ rerender: render });
   $('questions-tabs').addEventListener('click', (event) => {
@@ -101,8 +105,9 @@ function render() {
     ? `${plural(topics().length, 'topic')} from ${resume.name}. ${summaryLine()}`
     : `Using the ${plural(topics().length, 'skill')} from the resume in topics.js until you upload yours. ${summaryLine()}`;
   const body = $('questions-body');
-  if (activeSession && (view === 'daily' || view === 'levels')) {
-    body.replaceChildren(renderQuiz(activeSession));
+  const running = activeSession();
+  if (running && (view === 'daily' || view === 'levels')) {
+    body.replaceChildren(renderQuiz(running));
     return;
   }
   const views = {
@@ -146,6 +151,12 @@ function renderDaily() {
   const todays = sessions.find((s) => s.kind === 'daily' && s.day === today);
   if (todays?.finishedAt) {
     wrap.append(renderResult(todays, 'Today\'s quiz is done. A new one is written tomorrow.'));
+  } else if (todays) {
+    // Started but not finished (the tab was closed, say): carry on, don't write a second one.
+    const answered = Object.keys(todays.answers).length;
+    wrap.append(card('Today\'s quiz',
+      el('p', 'q-text', { text: `${answered} of ${todays.questionIds.length} answered, ${todays.score.correct} right so far.` }),
+      button('Continue today\'s quiz', 'btn--primary', () => { activeSessionId = todays.id; render(); })));
   } else {
     const retries = retryPool().length;
     const intro = card('Today\'s quiz',
@@ -191,7 +202,7 @@ async function startDaily() {
     });
     bank.push(...fresh);
     await save(BANK_KEY, bank);
-    activeSession = newSession({ kind: 'daily', questionIds: shuffle([...retries, ...fresh]).map((q) => q.id) });
+    activeSessionId = newSession({ kind: 'daily', questionIds: shuffle([...retries, ...fresh]).map((q) => q.id) }).id;
   } catch (error) {
     reportAiError(error);
   } finally {
@@ -314,7 +325,7 @@ async function startLevel(topicId, n) {
       render();
     }
   }
-  activeSession = newSession({ kind: 'level', topic: topicId, level: n, questionIds: info.questionIds });
+  activeSessionId = newSession({ kind: 'level', topic: topicId, level: n, questionIds: info.questionIds }).id;
   render();
 }
 
@@ -413,6 +424,10 @@ function newSession({ kind, questionIds, topic = null, level = null }) {
 
 function renderQuiz(session) {
   const wrap = el('div', 'q-stack');
+  // A question missing from the bank is skipped, not the end of the quiz.
+  while (session.position < session.questionIds.length && !bank.some((q) => q.id === session.questionIds[session.position])) {
+    session.position += 1;
+  }
   const question = bank.find((q) => q.id === session.questionIds[session.position]);
   if (!question) {
     finishSession(session);
@@ -425,9 +440,12 @@ function renderQuiz(session) {
     el('span', 'q-quiz-title', { text: title }),
     el('span', 'q-quiz-progress', { text: `${session.position + 1} / ${session.questionIds.length} · ${session.score.correct} right` }),
   );
+  // Handlers look the session up again when clicked: by then a storage change
+  // may have replaced `sessions`, and `session` would be a detached copy.
+  const live = () => sessions.find((s) => s.id === session.id) || session;
   const quit = button('Stop', 'btn--ghost btn--small', () => {
     if (!confirm('Stop this quiz? The questions you answered are kept; the rest wait for next time.')) return;
-    finishSession(session);
+    finishSession(live());
     render();
   });
   head.append(quit);
@@ -460,8 +478,9 @@ function renderQuiz(session) {
     if (question.explanation) body.append(el('p', 'q-explanation', { text: question.explanation }));
     const last = session.position >= session.questionIds.length - 1;
     actions.append(button(last ? 'See your score' : 'Next question', 'btn--primary', () => {
-      if (last) finishSession(session);
-      else session.position += 1;
+      const s = live();
+      if (last) finishSession(s);
+      else s.position += 1;
       save(SESSIONS_KEY, sessions);
       render();
     }));
@@ -469,7 +488,7 @@ function renderQuiz(session) {
     actions.append(button('Check', 'btn--primary', () => {
       const chosen = inputs.filter((i) => i.checked).map((i) => Number(i.value));
       if (!chosen.length) { toast('Pick an answer first.'); return; }
-      answer(session, question, chosen);
+      answer(live(), question, chosen);
       render();
     }));
   }
@@ -478,7 +497,9 @@ function renderQuiz(session) {
   return wrap;
 }
 
-function answer(session, question, chosen) {
+function answer(session, shown, chosen) {
+  // The question object shown may be a detached copy too; write to the one in the bank.
+  const question = bank.find((q) => q.id === shown.id) || shown;
   const correct = chosen.length === question.answers.length && chosen.every((i) => question.answers.includes(i));
   session.answers[question.id] = { chosen, correct };
   if (correct) session.score.correct += 1;
@@ -500,7 +521,7 @@ function finishSession(session) {
       save(LEVELS_KEY, levels);
     }
   }
-  activeSession = null;
+  activeSessionId = null;
   save(SESSIONS_KEY, sessions);
   if (feedback?.day === dateKey()) {
     feedback = null;
