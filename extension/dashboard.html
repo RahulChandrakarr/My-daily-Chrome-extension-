@@ -105,6 +105,7 @@
           <button id="tab-learning" data-tab="learning" type="button" role="tab" aria-controls="panel-learning" aria-selected="false" tabindex="-1">Learning</button>
           <button id="tab-work" data-tab="work" type="button" role="tab" aria-controls="panel-work" aria-selected="false" tabindex="-1">Work</button>
           <button id="tab-notes" data-tab="notes" type="button" role="tab" aria-controls="panel-notes" aria-selected="false" tabindex="-1">Notes</button>
+          <button id="tab-questions" data-tab="questions" type="button" role="tab" aria-controls="panel-questions" aria-selected="false" tabindex="-1">Questions</button>
         </div>
 
         <section id="panel-news" class="tab-panel" role="tabpanel" aria-labelledby="tab-news">
@@ -315,6 +316,23 @@
           <div class="notes-days" id="notes-days"></div>
           <div class="feed-more"><button id="notes-more" class="btn" type="button" hidden>Show earlier days</button></div>
         </section>
+
+        <section id="panel-questions" class="tab-panel" role="tabpanel" aria-labelledby="tab-questions" hidden>
+          <div class="brief-head">
+            <div>
+              <h2 class="brief-title">Questions</h2>
+              <p class="brief-summary" id="questions-summary"></p>
+            </div>
+            <button id="questions-resume" class="btn btn--small" type="button">Resume</button>
+          </div>
+          <div class="learn-tabs" id="questions-tabs" role="tablist" aria-label="Question sections">
+            <button class="learn-tab" type="button" role="tab" data-view="daily" aria-selected="true">Daily quiz</button>
+            <button class="learn-tab" type="button" role="tab" data-view="levels" aria-selected="false">Levels</button>
+            <button class="learn-tab" type="button" role="tab" data-view="report" aria-selected="false">Report</button>
+            <button class="learn-tab" type="button" role="tab" data-view="feedback" aria-selected="false">Feedback</button>
+          </div>
+          <div id="questions-body"></div>
+        </section>
       </div>
     </main>
   </div>
@@ -364,6 +382,17 @@
           <button id="sign-out" class="btn btn--ghost" type="button">Sign out</button>
         </div>
         <p class="setting-help">Run <code>supabase/schema.sql</code> in your project's SQL editor first. The README has the steps.</p>
+      </section>
+
+      <section class="setting" id="ai-section">
+        <h3 class="setting-label">AI for Questions</h3>
+        <p class="setting-help" id="ai-status"></p>
+        <form id="ai-config" class="setting-form">
+          <input id="openrouter-key" class="field" type="password" placeholder="OpenRouter API key (sk-or-…)" aria-label="OpenRouter API key" autocomplete="off" spellcheck="false">
+          <input id="ai-model" class="field" type="text" placeholder="anthropic/claude-opus-5.5" aria-label="Model" autocomplete="off" spellcheck="false">
+          <div class="setting-actions"><button class="btn btn--primary" type="submit">Save</button><button id="ai-forget" class="btn btn--ghost" type="button">Forget key</button></div>
+          <p class="setting-help">Writes the quizzes, levels and feedback in Questions, and reads a PDF resume. Create a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. A 20-question quiz costs a few cents with the default model. The key is stored only on this computer and isn't in backups. Without a key, Chrome's on-device AI is used when it's available; its questions are simpler.</p>
+        </form>
       </section>
 
       <section class="setting" id="github-section">
@@ -447,6 +476,32 @@
         <span class="note-form-hint">⌘ Enter to save</span>
         <button id="note-cancel" class="btn btn--ghost" type="button">Cancel</button>
         <button id="note-save" class="btn btn--primary" type="submit">Add note</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resume-dialog" class="note-dialog" aria-labelledby="resume-dialog-title">
+    <form id="resume-form" class="note-form" autocomplete="off">
+      <div class="settings-head">
+        <h2 id="resume-dialog-title">Your resume</h2>
+        <button id="resume-close" class="icon-btn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <p class="setting-help">The AI reads it once and lists the topics it covers. Quizzes, levels and feedback are built from those topics. The resume itself isn't kept, only the topics.</p>
+      <p class="setting-help" id="resume-ai-note"></p>
+      <div id="resume-topics-wrap" hidden>
+        <p class="setting-help">Topics found last time. Remove any you don't want asked about.</p>
+        <div class="chips" id="resume-topics"></div>
+      </div>
+      <label class="setting-help q-file-row">Choose a file (PDF, .txt or .md) <input id="resume-file" type="file" accept=".pdf,.txt,.md,text/plain,application/pdf"></label>
+      <p class="setting-help" id="resume-file-name"></p>
+      <textarea id="resume-text" class="field note-text-field" rows="8" placeholder="…or paste the resume text here" aria-label="Resume text" maxlength="30000"></textarea>
+      <div class="note-form-actions">
+        <button id="resume-clear" class="btn btn--danger" type="button" hidden>Forget resume</button>
+        <span class="note-form-hint"></span>
+        <button id="resume-cancel" class="btn btn--ghost" type="button">Cancel</button>
+        <button id="resume-read" class="btn btn--primary" type="submit">Read resume</button>
       </div>
     </form>
   </dialog>

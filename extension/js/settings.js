@@ -3,12 +3,15 @@
 import { load, save, watch } from './store.js';
 import { verifyToken } from './github.js';
 import { keepStreak, parseRepo, setupStreakRepo, STREAK_STATE_KEY, STREAK_DEFAULT_TIME } from './streak.js';
+import { verifyOpenRouterKey, DEFAULT_MODEL, AI_AUTH_KEY } from './ai.js';
+import { onDeviceModelStatus } from './tasksplit.js';
 import { ALL_SOURCES } from './sources.js';
 import { allTopics, customTopic } from './topics.js';
 import { getConfig, saveConfig, signIn, signUp, signOut, syncNow, getSyncState, onSyncChange } from './sync.js';
 import { visibleTasks, replaceTasks, normalizeImported } from './tasks.js';
 import { exportLearningLog, importLearningLog } from './learning.js';
 import { exportNotes, importNotes } from './notes.js';
+import { exportQuestions } from './questions.js';
 import { dateKey, timeAgo } from './dates.js';
 import { el, icon, toast, plural, safeUrl } from './ui.js';
 
@@ -60,6 +63,13 @@ export function initSettings(hooks) {
     authenticate(event.submitter?.value === 'signup' ? 'signup' : 'signin');
   });
   $('github-connect').addEventListener('submit', connectGitHub);
+  $('ai-config').addEventListener('submit', saveAi);
+  $('ai-forget').addEventListener('click', async () => {
+    await save(AI_AUTH_KEY, null);
+    $('openrouter-key').value = '';
+    toast('OpenRouter key forgotten.');
+    renderAiState();
+  });
   $('github-disconnect').addEventListener('click', async () => {
     await save('githubAuth', null);
     renderGitHubState();
@@ -101,6 +111,9 @@ async function fill() {
   $('work-summary-time').value = settings.workSummaryTime || '18:00';
   $('work-notify').checked = settings.workNotify !== false;
   $('auto-done').checked = settings.autoDone !== false;
+  $('openrouter-key').value = (await load(AI_AUTH_KEY, null))?.key || '';
+  $('ai-model').value = settings.aiModel || '';
+  await renderAiState();
   await renderGitHubState();
   const auth = await load('githubAuth', null);
   $('streak-keep').checked = settings.streakKeep === true;
@@ -184,6 +197,7 @@ async function exportData() {
     tasks: visibleTasks(),
     learningLog: await exportLearningLog(),
     workNotes: exportNotes(),
+    questions: exportQuestions(), // resume topics, questions, scores and levels (not restored by Import yet)
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const link = el('a', '', { href: URL.createObjectURL(blob), download: `my-daily-backup-${dateKey()}.json` });
@@ -241,6 +255,43 @@ async function renderGitHubState() {
     : 'Not connected. Connect to track the commits and pull requests you push each day.';
   $('github-connect').hidden = Boolean(auth?.token);
   $('github-connected').hidden = !auth?.token;
+}
+
+// --- AI for Questions ----------------------------------------------------------------
+
+async function saveAi(event) {
+  event.preventDefault();
+  const key = $('openrouter-key').value.trim();
+  const model = $('ai-model').value.trim();
+  const button = $('ai-config').querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    if (key) {
+      const info = await verifyOpenRouterKey(key);
+      await save(AI_AUTH_KEY, { key, savedAt: Date.now() });
+      updateSettings({ aiModel: model });
+      toast(`OpenRouter key works${info.limitRemaining != null ? ` ($${Number(info.limitRemaining).toFixed(2)} left)` : ''}.`);
+    } else {
+      await save(AI_AUTH_KEY, null);
+      updateSettings({ aiModel: model });
+      toast('Saved.');
+    }
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    renderAiState();
+  }
+}
+
+async function renderAiState() {
+  const settings = getSettings();
+  const [auth, onDevice] = await Promise.all([load(AI_AUTH_KEY, null), onDeviceModelStatus()]);
+  $('ai-status').textContent = auth?.key
+    ? `Using ${settings.aiModel || DEFAULT_MODEL} through OpenRouter.`
+    : onDevice === 'available'
+      ? 'No key. Using Chrome\'s on-device AI: free, but simpler questions and no PDF reading.'
+      : 'No key, and Chrome\'s on-device AI isn\'t available here. Questions can\'t be written until one is set up.';
 }
 
 // --- Keep my streak ------------------------------------------------------------------

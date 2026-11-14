@@ -10,6 +10,7 @@ import { cachedStack, ensureStack } from './stack.js';
 import { initSettings } from './settings.js';
 import { initWork, setWorkVisible } from './work.js';
 import { initNotes, renderNotes } from './notes.js';
+import { initQuestions, setQuestionsVisible } from './questions.js';
 import { initTrending } from './trending.js';
 import { dateKey } from './dates.js';
 import { plural } from './ui.js';
@@ -51,6 +52,7 @@ async function main() {
   await initNotes(); // before Work, whose project cards show their notes
   initWork();
   initTrending();
+  await initQuestions();
 
   // Your stack (the tools in the repos you push to), re-checked twice a day.
   watch('workStack', (value) => {
@@ -161,6 +163,7 @@ async function initTabs() {
     document.body.dataset.tab = tab.dataset.tab;
     setLearningVisible(tab.dataset.tab === 'learning');
     setWorkVisible(tab.dataset.tab === 'work');
+    setQuestionsVisible(tab.dataset.tab === 'questions');
     save('activeTab', tab.id);
     if (focus) tab.focus();
   };

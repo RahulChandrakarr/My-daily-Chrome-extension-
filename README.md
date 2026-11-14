@@ -17,6 +17,7 @@ A Chrome extension that turns every new tab into your daily dashboard. The left 
 - **Work** (connect GitHub): what you pushed today and yesterday, as commits by repo and branch, lines changed, the folders you worked in, and pull requests you opened, merged or reviewed. Each day gets a few short bullets on what you worked on and where, and a daily summary is written automatically at a time you choose. Your GitHub contribution graph (the green squares from your profile) sits below, with your current and longest streak. Each project has a **Note** button, and its card shows the notes you wrote for it that day.
 - **Keep my streak** (optional, connect GitHub): on a day you don't push, it commits the day's log to a private repo of yours in the evening, so your contribution graph doesn't skip that day. The log lists the to-dos you finished and what you read or tried, and the commit message says what's in it.
 - **Notes**: write down what you did on a project, what's left and what you're waiting on (say, a permission a client still has to give), so it isn't only in your head. Each note belongs to a project and a day, and keeps the time you wrote it. The Notes tab lists each day, newest first, with the projects you pushed to and the notes under each one. Pick a project to see only its notes.
+- **Questions**: interview practice built from your resume. Upload it once (PDF or text) and the AI lists the topics it covers. Then: a **daily quiz** of 20 fresh questions across your topics, with single-answer and choose-all-that-apply questions; **levels**, 40 per topic and 25 questions each, harder as you go, four open at first and one more each day; a **report** for today, this week and this month; and **feedback** once a day on where you're weak, what to work on and what's worth learning next. Needs an AI: an OpenRouter key in Settings (best; a quiz costs a few cents) or Chrome's on-device AI (free, simpler questions, no PDF).
 - **Supabase sync** (optional): tasks, learning log, work history, notes and settings are saved locally first, so everything is instant, then synced to your own Supabase project.
 
 It runs only in your Chrome. Nothing goes through the Chrome Web Store.
@@ -102,6 +103,17 @@ How the Work tab finds your commits:
 - **Delay:** GitHub's event feed can lag by a few minutes, and occasionally longer, so a push you just made may take a moment to show.
 - **Token storage:** the token is stored only in this Chrome profile. It isn't in backups and isn't sent to Supabase.
 
+## Questions: how the quizzes work
+
+- **Right answers aren't asked again.** A daily-quiz question you get right is retired.
+- **Wrong answers come back, but not within a week.** A question you got wrong returns in a daily quiz at least 7 days later, at most 4 per quiz; the rest of the quiz is new. Level questions stay with their level, so you can retake it.
+- **Topics each day:** a rotating slice of your resume (six topics a day, so every topic comes round), plus your two weakest topics of the last month.
+- **Levels** open with the days since you saved your resume: 4 on the first day, 5 the next, up to 40. A level's questions are written the first time you open it and kept, and 70% passes it. Levels 1-8 are basics, 9-16 junior, 17-24 mid, 25-32 senior, 33-40 expert.
+- **Report** counts finished quizzes and levels. The by-topic list is sorted weakest first, so it doubles as a to-study list.
+- **Feedback** is written from your accuracy by topic, the questions you missed this week, your resume topics and the tools in the repos you push to. Without AI, it's built from your scores alone.
+- **Where it's stored:** on this computer, in the extension's storage, like everything else. Resume topics are kept; the resume file isn't. Your answers never go to the AI; it only writes questions and the feedback summary.
+- **Puzzles and Communication** sections are planned next, and the report has room for them.
+
 ## Where your data lives
 
 Without Supabase, everything is in this Chrome profile's extension storage. Removing the extension deletes it, so use **Settings → Export backup** now and then. The backup is a JSON file with your tasks, learning log and notes; **Import backup** restores it (notes are merged with the ones you have, never replaced).
@@ -159,6 +171,8 @@ my-daily/
         ├── preview.js       Open Graph preview images (ported from uptime)
         ├── work.js          Work tab
         ├── notes.js         Notes tab, the note box and the notes on Work's project cards
+        ├── questions.js     Questions tab: resume topics, daily quiz, levels, report, feedback
+        ├── ai.js            asks OpenRouter (Claude) or Chrome's on-device AI for JSON
         ├── contributions.js GitHub contribution graph and streaks
         ├── github.js        GitHub activity and the daily summary
         ├── streak.js        Keep my streak: the evening check and the day's log commit
