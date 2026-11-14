@@ -1467,6 +1467,70 @@ label.check-row { display: flex; flex: 1; align-items: center; justify-content: 
 .check-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--done); }
 .topic-add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
 
+/* --- A little colour across the app -------------------------------------------------
+   Each tab has a hue, kept light: a dot and underline on the tab, the greeting
+   and section titles in that hue, a thin top edge on the panels, and tinted
+   hover and focus states. Nothing is filled with colour. */
+:root {
+  --hue-news: #2f8fde;
+  --hue-learn: #1d8a5c;
+  --hue-work: #e09a1e;
+  --hue-notes: #e2507a;
+  --hue-questions: #5b63e6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --hue-news: #6fb6ff; --hue-learn: #5fcb8f; --hue-work: #f2b544; --hue-notes: #ff7aa0; --hue-questions: #8d93ff; }
+}
+:root[data-theme="dark"] { --hue-news: #6fb6ff; --hue-learn: #5fcb8f; --hue-work: #f2b544; --hue-notes: #ff7aa0; --hue-questions: #8d93ff; }
+
+body[data-tab="news"] { --page: var(--hue-news); }
+body[data-tab="learning"] { --page: var(--hue-learn); }
+body[data-tab="work"] { --page: var(--hue-work); }
+body[data-tab="notes"] { --page: var(--hue-notes); }
+body[data-tab="questions"] { --page: var(--hue-questions); }
+
+.tabs [data-tab="news"] { --tab: var(--hue-news); }
+.tabs [data-tab="learning"] { --tab: var(--hue-learn); }
+.tabs [data-tab="work"] { --tab: var(--hue-work); }
+.tabs [data-tab="notes"] { --tab: var(--hue-notes); }
+.tabs [data-tab="questions"] { --tab: var(--hue-questions); }
+.tabs [role="tab"]::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--tab);
+  opacity: 0.45;
+  vertical-align: 2px;
+  transition: opacity 160ms, transform 160ms;
+}
+.tabs [role="tab"]:hover::before, .tabs [role="tab"][aria-selected="true"]::before { opacity: 1; transform: scale(1.15); }
+.tabs [role="tab"][aria-selected="true"]::after { background: var(--tab); }
+
+.greeting { color: var(--page, var(--muted)); }
+.section-title::before, .brief-section > .section-title::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 0.85em;
+  margin-right: 10px;
+  border-radius: 2px;
+  background: var(--page, var(--line-strong));
+  vertical-align: -1px;
+}
+.panel { border-top: 3px solid var(--panel-hue, var(--line)); }
+.panel.tasks { --panel-hue: var(--accent); }
+.panel[data-for="learning"] { --panel-hue: var(--hue-learn); }
+.panel[data-for="work"] { --panel-hue: var(--hue-work); }
+.panel.trending { --panel-hue: var(--hue-questions); }
+.card:hover { border-color: color-mix(in srgb, var(--page, var(--line-strong)) 55%, var(--line)); }
+.learn-tab:hover { border-color: color-mix(in srgb, var(--page, var(--line-strong)) 60%, var(--line)); }
+.search input:focus { border-color: color-mix(in srgb, var(--page, var(--line-strong)) 70%, var(--line)); }
+body[data-tab="work"] .work-card:not(.q-card) { border-top: 3px solid var(--hue-work); }
+.btn--primary:hover { background: color-mix(in srgb, var(--page, var(--primary-bg)) 22%, var(--primary-bg)); opacity: 1; }
+
 /* --- Questions ------------------------------------------------------------------ */
 
 /* Each area has a colour and keeps it everywhere: cards, tabs, tiles, bars. */
